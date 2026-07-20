@@ -1,0 +1,32 @@
+# Environment
+.env
+.env.local
+
+# Build output
+bin/
+/api
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Old SQLite artifacts (pre-migration)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
