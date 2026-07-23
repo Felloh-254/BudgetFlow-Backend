@@ -23,9 +23,7 @@ type Config struct {
 }
 
 func Load() *Config {
-	// .env is a local dev convenience; in production (Render, Railway, Fly,
-	// etc.) real environment variables are already set and this is a no-op.
-	if err := godotenv.Load(); err != nil {
+	if err := godotenv.Load("../../.env"); err != nil {
 		log.Println("no .env file found, relying on environment variables")
 	}
 
@@ -33,7 +31,7 @@ func Load() *Config {
 		Port:        getEnv("PORT", "8080"),
 		DatabaseURL: mustGetEnv("DATABASE_URL"),
 		JWTSecret:   mustGetEnv("JWT_SECRET"),
-		CORSOrigins: strings.Split(getEnv("CORS_ORIGINS", "http://localhost:5173"), ","),
+		CORSOrigins: strings.Split(getEnv("CORS_ORIGINS", "https://2987-197-248-144-53.ngrok-free.app"), ","),
 	}
 
 	hours, err := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "168"))
