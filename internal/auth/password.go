@@ -2,9 +2,7 @@ package auth
 
 import "golang.org/x/crypto/bcrypt"
 
-// HashPassword returns a bcrypt hash of the plaintext password. bcrypt
-// embeds its own salt, so no separate salt handling is needed (unlike the
-// old hand-rolled SHA-256 + salt scheme).
+// HashPassword returns a bcrypt hash of the plaintext password.
 func HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {

@@ -31,7 +31,7 @@ func Load() *Config {
 		Port:        getEnv("PORT", "8080"),
 		DatabaseURL: mustGetEnv("DATABASE_URL"),
 		JWTSecret:   mustGetEnv("JWT_SECRET"),
-		CORSOrigins: strings.Split(getEnv("CORS_ORIGINS", "https://2987-197-248-144-53.ngrok-free.app"), ","),
+		CORSOrigins: strings.Split(getEnv("CORS_ORIGINS", "http://localhost:5173 "), ","),
 	}
 
 	hours, err := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "168"))

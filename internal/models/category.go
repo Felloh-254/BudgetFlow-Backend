@@ -9,7 +9,7 @@ type Category struct {
 	ID        int       `json:"id"`
 	UserID    *int      `json:"user_id,omitempty"`
 	Name      string    `json:"name"`
-	Type      string    `json:"type"` // "income" | "expense"
+	Type      string    `json:"type"` // "expense" or "income"
 	Color     string    `json:"color"`
 	CreatedAt time.Time `json:"created_at"`
 }

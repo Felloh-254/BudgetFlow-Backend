@@ -6,7 +6,7 @@ type Budget struct {
 	ID         int       `json:"id"`
 	UserID     int       `json:"user_id"`
 	CategoryID int       `json:"category_id"`
-	Category   string    `json:"category"` // denormalized name, for API convenience
+	Category   string    `json:"category"` // This is a denormalized field for convenience, not stored in the database.
 	Name       string    `json:"name"`
 	Amount     float64   `json:"amount"`
 	Color      string    `json:"color"`
