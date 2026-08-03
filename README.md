@@ -55,12 +55,23 @@ This architecture replaces the legacy flat structure (one `handlers.go` with mix
 ## Features
 
 - **Secure Authentication**: JWT-based auth with bcrypt password hashing
-- **Budget Management**: Create, update, and track budgets with categorized limits
-- **Transaction Tracking**: Log expenses and income with category associations
-- **PostgreSQL Backend**: Robust, concurrent-writer support with proper migrations
-- **Graceful Shutdown**: Handles SIGTERM/SIGINT by draining in-flight requests
-- **Environment Configuration**: All settings via environment variables, validated at startup
-- **Modular Design**: Clean separation between HTTP, business logic, and data layers
+- **User registration and login**: register, login, and fetch current user profile
+- **Budget Management**: create, update, and delete budgets with category assignment
+- **Custom Categories**: create and use custom categories for budgets and transactions
+- **Transaction Tracking**: log income and expense transactions with category and date
+- **Summary Reporting**: total income, total expenses, balance, budget stats, and recent monthly trends
+- **PostgreSQL Backend**: robust, concurrent-writer support with proper migrations
+- **Graceful Shutdown**: handles SIGTERM/SIGINT by draining in-flight requests
+- **Environment Configuration**: all settings via environment variables, validated at startup
+- **Modular Design**: clean separation between HTTP, business logic, and data layers
+
+### Current limitations
+
+- Password reset / forgot password flows are not implemented
+- Notification scheduling (end-of-day or start-of-month reminders) is not implemented
+- Family/invite user sharing is not implemented
+- There is no explicit previous-month budget reuse feature in the backend
+- Transaction listing does not currently support date-range or month filters
 
 ---
 
@@ -88,86 +99,120 @@ Copy the example environment file and fill in your values:
 
 ```bash
 cp .env.example .env
+```
 
-Edit .env with your database credentials, JWT secret, and other settings:
+Edit `.env` with your database credentials, JWT secret, and other settings:
 
+```bash
 DATABASE_URL=postgres://user:password@host:5432/budgetapp?sslmode=require
 JWT_SECRET=your-strong-secret-key-here
 PORT=8080
+```
 
-3. Resolve Dependencies
-The go.mod file is included but may need to fetch exact versions:
+### 3. Resolve Dependencies
 
-bash
+The `go.mod` file is included but may need to fetch dependencies:
+
+```bash
 go mod tidy
-4. Run Schema Migrations
-Install the golang-migrate CLI if you haven't already, then:
+```
 
-bash
+### 4. Run Schema Migrations
+
+Install the `golang-migrate` CLI if you haven't already, then:
+
+```bash
 export DATABASE_URL="postgres://user:password@host:5432/budgetapp?sslmode=require"
 make migrate-up
+```
+
 Or using the migrate CLI directly:
 
-bash
+```bash
 migrate -database "$DATABASE_URL" -path migrations up
-5. (Optional) Migrate Existing Data
-If you have an existing SQLite budget.db from the legacy version, migrate it:
+```
 
-bash
+### 5. (Optional) Migrate Existing Data
+
+If you have an existing SQLite `budget.db` from the legacy version, migrate it:
+
+```bash
 make migrate-data
-⚠️ Important: Old passwords were salted SHA-256, not bcrypt. Migrated users' existing password hashes won't validate against the new CheckPassword. To enable seamless login for migrated users:
+```
 
-Force a password reset for migrated accounts, OR
+> Important: Old passwords were salted SHA-256, not bcrypt. Migrated users' existing password hashes won't validate against the new `CheckPassword`. To enable seamless login for migrated users, force a password reset for migrated accounts or add a temporary legacy-hash fallback in `auth_service.go`.
 
-Add a temporary legacy-hash fallback in auth_service.go
+### 6. Run the Application
 
-6. Run the Application
-bash
+```bash
 make run
-The server will start on the port specified in your environment (default: 8080).
+```
 
-Key Improvements from the Legacy Version
-Aspect	Legacy Version	New Version
-Database	SQLite (file-based)	PostgreSQL (production-ready, concurrent)
-Password Hashing	Custom SHA-256	bcrypt (industry standard)
-Categories	Free-text strings	Normalized categories table with colors/icons
-Configuration	Hardcoded in source	Environment variables with validation
-Architecture	Monolithic handlers.go	Layered: handler → service → repository
-Error Handling	Inconsistent	Structured sentinel errors with HTTP mapping
-Shutdown	Abrupt termination	Graceful shutdown with request draining
-Testing	Difficult (mixed concerns)	Isolated layers for unit testing
-API Endpoints
-Authentication
-Method	Endpoint	Description
-POST	/api/register	Create new user account
-POST	/api/login	Authenticate and receive JWT token
-Budgets
-Method	Endpoint	Description
-GET	/api/budgets	List all budgets
-POST	/api/budgets	Create a new budget
-GET	/api/budgets/:id	Get budget details
-PUT	/api/budgets/:id	Update a budget
-DELETE	/api/budgets/:id	Delete a budget
-Transactions
-Method	Endpoint	Description
-GET	/api/transactions	List transactions
-POST	/api/transactions	Create a transaction
-GET	/api/transactions/:id	Get transaction details
-PUT	/api/transactions/:id	Update a transaction
-DELETE	/api/transactions/:id	Delete a transaction
-All endpoints (except /register and /login) require a valid JWT token in the Authorization: Bearer <token> header.
+The server will start on the port specified in your environment (default: `8080`).
 
-Development
+## Key Improvements from the Legacy Version
+
+| Aspect           | Legacy Version             | New Version                                  |
+| ---------------- | -------------------------- | -------------------------------------------- |
+| Database         | SQLite (file-based)        | PostgreSQL (production-ready, concurrent)    |
+| Password Hashing | Custom SHA-256             | bcrypt (industry standard)                   |
+| Categories       | Free-text strings          | Normalized categories table                  |
+| Configuration    | Hardcoded in source        | Environment variables with validation        |
+| Architecture     | Monolithic handlers.go     | Layered: handler → service → repository      |
+| Error Handling   | Inconsistent               | Structured sentinel errors with HTTP mapping |
+| Shutdown         | Abrupt termination         | Graceful shutdown with request draining      |
+| Testing          | Difficult (mixed concerns) | Isolated layers for unit testing             |
+
+## Current API Endpoints
+
+### Authentication
+
+| Method | Endpoint             | Description                            |
+| ------ | -------------------- | -------------------------------------- |
+| POST   | `/api/auth/register` | Register a new user and receive JWT    |
+| POST   | `/api/auth/login`    | Authenticate and receive JWT           |
+| GET    | `/api/me`            | Get current authenticated user profile |
+
+### Budgets
+
+| Method | Endpoint           | Description                   |
+| ------ | ------------------ | ----------------------------- |
+| GET    | `/api/budgets`     | List all budgets for the user |
+| POST   | `/api/budgets`     | Create a new budget           |
+| PUT    | `/api/budgets/:id` | Update an existing budget     |
+| DELETE | `/api/budgets/:id` | Delete a budget               |
+
+### Transactions
+
+| Method | Endpoint                | Description            |
+| ------ | ----------------------- | ---------------------- |
+| GET    | `/api/transactions`     | List user transactions |
+| POST   | `/api/transactions`     | Create a transaction   |
+| PUT    | `/api/transactions/:id` | Update a transaction   |
+| DELETE | `/api/transactions/:id` | Delete a transaction   |
+
+### Summary
+
+| Method | Endpoint       | Description                                  |
+| ------ | -------------- | -------------------------------------------- |
+| GET    | `/api/summary` | Get totals, budget stats, and monthly trends |
+
+> Note: All endpoints except `/api/auth/register` and `/api/auth/login` require a valid `Authorization: Bearer <token>` header.
+
+## Development
+
 Making Changes
-Add a new endpoint: Handler → Service → Repository
 
-Database changes: Create migration files in migrations/
+- Add a new endpoint: Handler → Service → Repository
+- Database changes: create migration files in `migrations/`
+- Environment variables: update `config/config.go` and `.env.example`
 
-Environment variables: Update config/config.go and .env.example
+### Running Tests
 
-Running Tests
-bash
+```bash
 go test ./...
+```
+
 Building for Production
 bash
 go build -o budget-api ./cmd/api
@@ -204,4 +249,7 @@ PostgreSQL driver: pgx
 Migrations: golang-migrate
 
 Note: This API replaces a legacy version where a single main.go contained everything — routing, business logic, and raw SQL. The new architecture ensures maintainability, testability, and production readiness.
+
+```
+
 ```
