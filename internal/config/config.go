@@ -34,9 +34,9 @@ func Load() *Config {
 		CORSOrigins: strings.Split(getEnv("CORS_ORIGINS", "http://localhost:5173 "), ","),
 	}
 
-	hours, err := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "168"))
+	hours, err := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "24"))
 	if err != nil || hours <= 0 {
-		hours = 168 // 7 days
+		hours = 24 // 1 day
 	}
 	cfg.JWTExpiry = time.Duration(hours) * time.Hour
 

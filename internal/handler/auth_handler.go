@@ -65,3 +65,10 @@ func (h *AuthHandler) Me(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, user.Public())
 }
+
+func (h *AuthHandler) Logout(c echo.Context) error {
+	// Server side logout logic can be implemented here if needed, such as invalidating tokens or clearing session data.
+	// For this example, we'll just return a success response.
+
+	return c.JSON(http.StatusOK, echo.Map{"message": "logged out successfully"})
+}
