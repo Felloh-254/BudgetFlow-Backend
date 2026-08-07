@@ -65,3 +65,25 @@ func (r *UserRepository) FindByID(ctx context.Context, id int) (*models.User, er
 	}
 	return &u, nil
 }
+
+func (r *UserRepository) ResetPassword(ctx context.Context, id int, newPasswordHash string) error {
+	result, err := r.db.Exec(ctx,
+		`UPDATE users SET password_hash = $1 WHERE id = $2`,
+		newPasswordHash, id,
+	)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return apperr.ErrNotFound
+	}
+	return nil
+}
+
+// func isUniqueViolation(err error) bool {
+// 	var pgErr *pgx.PgError
+// 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+// 		return true
+// 	}
+// 	return false
+// }

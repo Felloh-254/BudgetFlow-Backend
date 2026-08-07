@@ -73,3 +73,26 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*model
 func (s *AuthService) GetByID(ctx context.Context, id int) (*models.User, error) {
 	return s.users.FindByID(ctx, id)
 }
+
+func (s *AuthService) ResetPassword(ctx context.Context, email, newPassword string) error {
+	email = strings.TrimSpace(strings.ToLower(email))
+
+	if newPassword == "" {
+		return apperr.Validation("New password is required")
+	}
+	if len(newPassword) < 8 {
+		return apperr.Validation("New password must be at least 8 characters")
+	}
+
+	user, err := s.users.FindByEmail(ctx, email)
+	if err != nil {
+		return err
+	}
+
+	hash, err := auth.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	return s.users.ResetPassword(ctx, user.ID, hash)
+}

@@ -32,6 +32,11 @@ type authResponse struct {
 	User  interface{} `json:"user"`
 }
 
+type resetPasswordRequest struct {
+	Email       string `json:"email"`
+	NewPassword string `json:"new_password"`
+}
+
 func (h *AuthHandler) Register(c echo.Context) error {
 	var req registerRequest
 	if err := c.Bind(&req); err != nil {
@@ -71,4 +76,17 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	// For this example, we'll just return a success response.
 
 	return c.JSON(http.StatusOK, echo.Map{"message": "logged out successfully"})
+}
+
+func (h *AuthHandler) ResetPassword(c echo.Context) error {
+	var req resetPasswordRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
+	}
+
+	err := h.auth.ResetPassword(c.Request().Context(), req.Email, req.NewPassword)
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(http.StatusOK, echo.Map{"message": "password reset successfully"})
 }
