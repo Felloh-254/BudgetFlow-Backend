@@ -96,3 +96,16 @@ func (s *AuthService) ResetPassword(ctx context.Context, email, newPassword stri
 
 	return s.users.ResetPassword(ctx, user.ID, hash)
 }
+
+func (s *AuthService) ForgetPassword(ctx context.Context, email string) error {
+	email = strings.TrimSpace(strings.ToLower(email))
+
+	_, err := s.users.FindByEmail(ctx, email)
+	if err != nil {
+		return err
+	}
+
+	// Here i will implement the generate a password reset token and send it via email.
+	// For simplicity, i will just return nil to indicate success.
+	return nil
+}

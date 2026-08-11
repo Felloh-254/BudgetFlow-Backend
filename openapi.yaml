@@ -1,0 +1,821 @@
+openapi: 3.0.0
+info:
+  title: BudgetFlow API
+  description: Personal budget management API for tracking income, expenses, and budgets
+  version: 1.0.0
+  contact:
+    name: BudgetFlow Support
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Development server
+  - url: https://api.budgetflow.com
+    description: Production server
+
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      description: Returns the health status of the API
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+
+  /api/auth/register:
+    post:
+      summary: Register a new user
+      description: Create a new user account with email and password
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - name
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+                password:
+                  type: string
+                  format: password
+                  minLength: 6
+                  example: "securepassword123"
+                name:
+                  type: string
+                  example: "John Doe"
+      responses:
+        '200':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/login:
+    post:
+      summary: User login
+      description: Authenticate user and receive JWT token
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+                password:
+                  type: string
+                  format: password
+                  example: "securepassword123"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT token for authenticated requests
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '401':
+          description: Invalid email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/forgot-password:
+    post:
+      summary: Request password reset
+      description: Send password reset instructions to user email
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+      responses:
+        '200':
+          description: Reset instructions sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Password reset instructions sent to email"
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/password/reset:
+    put:
+      summary: Reset password
+      description: Reset user password using reset token
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+                - new_password
+              properties:
+                token:
+                  type: string
+                  example: "reset_token_123"
+                new_password:
+                  type: string
+                  format: password
+                  minLength: 6
+                  example: "newpassword123"
+      responses:
+        '200':
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Password updated successfully"
+        '400':
+          description: Invalid token or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/me:
+    get:
+      summary: Get current user
+      description: Retrieve the authenticated user's profile information
+      tags:
+        - User
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized - invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/budgets:
+    get:
+      summary: List all budgets
+      description: Retrieve all budgets for the authenticated user
+      tags:
+        - Budgets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: category
+          in: query
+          description: Filter by category name
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of budgets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Budget'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Create a new budget
+      description: Create a new budget for a spending category
+      tags:
+        - Budgets
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - amount
+                - category
+              properties:
+                name:
+                  type: string
+                  example: "Groceries"
+                amount:
+                  type: number
+                  format: float
+                  example: 500.00
+                category:
+                  type: string
+                  example: "Food"
+                color:
+                  type: string
+                  example: "#FF5733"
+      responses:
+        '201':
+          description: Budget created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/budgets/{id}:
+    put:
+      summary: Update a budget
+      description: Update an existing budget
+      tags:
+        - Budgets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                amount:
+                  type: number
+                  format: float
+                category:
+                  type: string
+                color:
+                  type: string
+      responses:
+        '200':
+          description: Budget updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Budget not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a budget
+      description: Delete a budget and all associated data
+      tags:
+        - Budgets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Budget deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Budget not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/transactions:
+    get:
+      summary: List all transactions
+      description: Retrieve all transactions for the authenticated user
+      tags:
+        - Transactions
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: budget_id
+          in: query
+          description: Filter by budget ID
+          schema:
+            type: integer
+        - name: type
+          in: query
+          description: Filter by type (income or expense)
+          schema:
+            type: string
+            enum: [income, expense]
+        - name: category
+          in: query
+          description: Filter by category
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Create a new transaction
+      description: Record a new income or expense transaction
+      tags:
+        - Transactions
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - amount
+                - type
+                - category
+                - date
+              properties:
+                title:
+                  type: string
+                  example: "Grocery shopping"
+                amount:
+                  type: number
+                  format: float
+                  example: 75.50
+                type:
+                  type: string
+                  enum: [income, expense]
+                  example: "expense"
+                category:
+                  type: string
+                  example: "Food"
+                date:
+                  type: string
+                  format: date
+                  example: "2024-08-11"
+                budget_id:
+                  type: integer
+                  nullable: true
+                  example: 1
+                note:
+                  type: string
+                  example: "Weekly groceries"
+      responses:
+        '201':
+          description: Transaction created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/transactions/{id}:
+    put:
+      summary: Update a transaction
+      description: Update an existing transaction
+      tags:
+        - Transactions
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                amount:
+                  type: number
+                  format: float
+                type:
+                  type: string
+                  enum: [income, expense]
+                category:
+                  type: string
+                date:
+                  type: string
+                  format: date
+                budget_id:
+                  type: integer
+                  nullable: true
+                note:
+                  type: string
+      responses:
+        '200':
+          description: Transaction updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a transaction
+      description: Delete a transaction record
+      tags:
+        - Transactions
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Transaction deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/summary:
+    get:
+      summary: Get financial summary
+      description: Get a summary of income, expenses, and budget status
+      tags:
+        - Summary
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          description: Start date for summary (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          description: End date for summary (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Financial summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Summary'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - created_at
+      properties:
+        id:
+          type: integer
+          example: 1
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        name:
+          type: string
+          example: "John Doe"
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-08-11T10:30:00Z"
+
+    Budget:
+      type: object
+      required:
+        - id
+        - user_id
+        - category_id
+        - category
+        - name
+        - amount
+        - spent
+        - created_at
+      properties:
+        id:
+          type: integer
+          example: 1
+        user_id:
+          type: integer
+          example: 1
+        category_id:
+          type: integer
+          example: 1
+        category:
+          type: string
+          example: "Food"
+        name:
+          type: string
+          example: "Groceries"
+        amount:
+          type: number
+          format: float
+          example: 500.00
+        color:
+          type: string
+          example: "#FF5733"
+        spent:
+          type: number
+          format: float
+          example: 150.50
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-08-11T10:30:00Z"
+
+    Transaction:
+      type: object
+      required:
+        - id
+        - user_id
+        - category_id
+        - category
+        - title
+        - amount
+        - type
+        - date
+        - created_at
+      properties:
+        id:
+          type: integer
+          example: 1
+        user_id:
+          type: integer
+          example: 1
+        budget_id:
+          type: integer
+          nullable: true
+          example: 1
+        category_id:
+          type: integer
+          example: 1
+        category:
+          type: string
+          example: "Food"
+        title:
+          type: string
+          example: "Grocery shopping"
+        amount:
+          type: number
+          format: float
+          example: 75.50
+        type:
+          type: string
+          enum: [income, expense]
+          example: "expense"
+        date:
+          type: string
+          format: date
+          example: "2024-08-11"
+        note:
+          type: string
+          example: "Weekly groceries"
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-08-11T10:30:00Z"
+
+    Summary:
+      type: object
+      required:
+        - total_income
+        - total_expenses
+        - net_balance
+        - budgets
+      properties:
+        total_income:
+          type: number
+          format: float
+          example: 3000.00
+        total_expenses:
+          type: number
+          format: float
+          example: 1500.00
+        net_balance:
+          type: number
+          format: float
+          example: 1500.00
+        budgets:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                type: string
+                example: "Food"
+              budget_amount:
+                type: number
+                format: float
+                example: 500.00
+              spent:
+                type: number
+                format: float
+                example: 350.00
+              remaining:
+                type: number
+                format: float
+                example: 150.00
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: "validation error message"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from login endpoint
+
+tags:
+  - name: System
+    description: System health and status
+  - name: Authentication
+    description: User authentication and password management
+  - name: User
+    description: User profile and information
+  - name: Budgets
+    description: Budget creation and management
+  - name: Transactions
+    description: Income and expense transaction management
+  - name: Summary
+    description: Financial summaries and reports

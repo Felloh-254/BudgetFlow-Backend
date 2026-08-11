@@ -17,12 +17,11 @@ import (
 	"budgetapp/internal/config"
 	"budgetapp/internal/database"
 	"budgetapp/internal/handler"
-	appmw "budgetapp/internal/middleware"
 	"budgetapp/internal/repository"
+	"budgetapp/internal/routes"
 	"budgetapp/internal/service"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
@@ -58,46 +57,27 @@ func main() {
 	e := echo.New()
 	e.HideBanner = true
 
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOriginFunc: func(origin string) (bool, error) {
-			return true, nil
-		},
-		AllowMethods: []string{
-			http.MethodGet,
-			http.MethodPost,
-			http.MethodPut,
-			http.MethodDelete,
-		},
-		AllowHeaders: []string{
-			echo.HeaderContentType,
-			echo.HeaderAuthorization,
-		},
-		AllowCredentials: true,
-	}))
+	// Register middleware
+	routes.RegisterMiddleware(e)
 
-	e.GET("/healthz", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, echo.Map{"status": "ok"})
-	})
+	// Register health check
+	routes.RegisterHealthCheck(e)
 
-	e.POST("/api/auth/register", authHandler.Register)
-	e.POST("/api/auth/login", authHandler.Login)
+	// Register Swagger/OpenAPI documentation
+	routes.RegisterSwaggerUI(e)
 
-	api := e.Group("/api", appmw.JWT(tokens))
-	api.GET("/me", authHandler.Me)
+	// Register public routes (no authentication required)
+	routes.RegisterPublicRoutes(e, authHandler)
 
-	api.GET("/budgets", budgetHandler.List)
-	api.POST("/budgets", budgetHandler.Create)
-	api.PUT("/budgets/:id", budgetHandler.Update)
-	api.DELETE("/budgets/:id", budgetHandler.Delete)
-
-	api.GET("/transactions", transactionHandler.List)
-	api.POST("/transactions", transactionHandler.Create)
-	api.PUT("/transactions/:id", transactionHandler.Update)
-	api.DELETE("/transactions/:id", transactionHandler.Delete)
-
-	api.GET("/summary", summaryHandler.Get)
+	// Register protected routes (authentication required)
+	routes.RegisterProtectedRoutes(
+		e,
+		tokens,
+		authHandler,
+		budgetHandler,
+		transactionHandler,
+		summaryHandler,
+	)
 
 	// Run the server in a goroutine so we can listen for shutdown signals
 	// and drain in-flight requests instead of killing connections abruptly.
