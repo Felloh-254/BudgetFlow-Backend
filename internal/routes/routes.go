@@ -47,6 +47,12 @@ func RegisterProtectedRoutes(
 	api.PUT("/budgets/:id", budgetHandler.Update)
 	api.DELETE("/budgets/:id", budgetHandler.Delete)
 
+	// Accounts APIs
+	api.POST("/accounts", budgetHandler.CreateAccount)
+	api.GET("/accounts", budgetHandler.ListAccounts)
+	api.PUT("/accounts/:id", budgetHandler.UpdateAccount)
+	api.DELETE("/accounts/:id", budgetHandler.DeleteAccount)
+
 	// Transaction routes
 	api.GET("/transactions", transactionHandler.List)
 	api.POST("/transactions", transactionHandler.Create)
