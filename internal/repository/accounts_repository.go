@@ -15,7 +15,7 @@ func NewAccountsRepository(db *pgxpool.Pool) *AccountsRepository {
 	return &AccountsRepository{db: db}
 }
 
-func (r *AccountsRepository) CreateAccount(ctx context.Context, userID int, name  string, accountType string, accountNumber *string, banlance float64, currency string) (*models.Account, error) {
+func (r *AccountsRepository) CreateAccount(ctx context.Context, userID int, name string, accountType string, accountNumber *string, banlance float64, currency string) (*models.Account, error) {
 	var a models.Account
 	err := r.db.QueryRow(ctx,
 		`INSERT INTO accounts (user_id, name, type, account_number, balance, currency)
@@ -65,10 +65,10 @@ func (r *AccountsRepository) UpdateAccount(ctx context.Context, accountID int, n
 	return &a, nil
 }
 
-func (r *AccountsRepository) DeleteAccount(ctx context.Context, accountID int) error {
+func (r *AccountsRepository) DeleteAccount(ctx context.Context, userID int, accountID int) error {
 	_, err := r.db.Exec(ctx,
-		`DELETE FROM accounts WHERE id = $1`,
-		accountID,
+		`DELETE FROM accounts WHERE id = $1 AND user_id = $2`,
+		accountID, userID,
 	)
 	return err
 }

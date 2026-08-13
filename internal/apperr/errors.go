@@ -11,6 +11,13 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrValidation         = errors.New("validation failed")
 	ErrForbidden          = errors.New("forbidden")
+
+	ErrInvalidAccountName     = errors.New("invalid account name")
+	ErrInvalidAccountType     = errors.New("invalid account type")
+	ErrUnsupportedAccountType = errors.New("Unsuported account type")
+	ErrAccountNameRequired    = errors.New("Account name is required")
+	ErrInvalidBalance         = errors.New("invalid balance")
+	ErrUnsupportedCurrency    = errors.New("unsupported currency")
 )
 
 // ValidationError carries a field-specific message while still satisfying
@@ -20,7 +27,7 @@ type ValidationError struct {
 }
 
 func (e *ValidationError) Error() string { return e.Message }
-func (e *ValidationError) Unwrap() error  { return ErrValidation }
+func (e *ValidationError) Unwrap() error { return ErrValidation }
 
 // Validation is a convenience constructor for a ValidationError.
 func Validation(msg string) error {
