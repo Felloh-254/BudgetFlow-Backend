@@ -140,7 +140,6 @@ If you have an existing SQLite `budget.db` from the legacy version, migrate it:
 make migrate-data
 ```
 
-> Important: Old passwords were salted SHA-256, not bcrypt. Migrated users' existing password hashes won't validate against the new `CheckPassword`. To enable seamless login for migrated users, force a password reset for migrated accounts or add a temporary legacy-hash fallback in `auth_service.go`.
 
 ### 6. Run the Application
 
@@ -248,8 +247,3 @@ PostgreSQL driver: pgx
 
 Migrations: golang-migrate
 
-Note: This API replaces a legacy version where a single main.go contained everything — routing, business logic, and raw SQL. The new architecture ensures maintainability, testability, and production readiness.
-
-```
-
-```
