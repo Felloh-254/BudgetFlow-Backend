@@ -41,18 +41,21 @@ func main() {
 	budgetRepo := repository.NewBudgetRepository(pool)
 	transactionRepo := repository.NewTransactionRepository(pool)
 	summaryRepo := repository.NewSummaryRepository(pool)
+	accountRepo := repository.NewAccountsRepository(pool)
 
 	// Services (business logic)
 	authService := service.NewAuthService(userRepo, tokens)
 	budgetService := service.NewBudgetService(budgetRepo, categoryRepo)
 	transactionService := service.NewTransactionService(transactionRepo, categoryRepo)
 	summaryService := service.NewSummaryService(summaryRepo)
+	accountService := service.NewAccountsService(accountRepo)
 
 	// Handlers (HTTP)
 	authHandler := handler.NewAuthHandler(authService)
 	budgetHandler := handler.NewBudgetHandler(budgetService)
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	summaryHandler := handler.NewSummaryHandler(summaryService)
+	accountHandler := handler.NewAccountsHandler(accountService)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -75,6 +78,7 @@ func main() {
 		tokens,
 		authHandler,
 		budgetHandler,
+		accountHandler,
 		transactionHandler,
 		summaryHandler,
 	)

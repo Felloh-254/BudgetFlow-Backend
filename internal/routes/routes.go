@@ -33,6 +33,7 @@ func RegisterProtectedRoutes(
 	tokens *auth.TokenManager,
 	authHandler *handler.AuthHandler,
 	budgetHandler *handler.BudgetHandler,
+	AccountHandler *handler.AccountHandler,
 	transactionHandler *handler.TransactionHandler,
 	summaryHandler *handler.SummaryHandler,
 ) {
@@ -48,10 +49,10 @@ func RegisterProtectedRoutes(
 	api.DELETE("/budgets/:id", budgetHandler.Delete)
 
 	// Accounts APIs
-	api.POST("/accounts", budgetHandler.CreateAccount)
-	api.GET("/accounts", budgetHandler.ListAccounts)
-	api.PUT("/accounts/:id", budgetHandler.UpdateAccount)
-	api.DELETE("/accounts/:id", budgetHandler.DeleteAccount)
+	api.POST("/accounts", AccountHandler.CreateAccount)
+	api.GET("/accounts", AccountHandler.ListAccounts)
+	api.PUT("/accounts/:id", AccountHandler.UpdateAccount)
+	api.DELETE("/accounts/:id", AccountHandler.DeleteAccount)
 
 	// Transaction routes
 	api.GET("/transactions", transactionHandler.List)
