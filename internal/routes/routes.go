@@ -66,6 +66,7 @@ func RegisterProtectedRoutes(
 
 // RegisterMiddleware registers global middleware.
 func RegisterMiddleware(e *echo.Echo) {
+	e.Use(middleware.RequestID())
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{

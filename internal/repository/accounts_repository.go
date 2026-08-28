@@ -51,13 +51,13 @@ func (r *AccountsRepository) ListAccountsByUser(ctx context.Context, userID int)
 	return accounts, rows.Err()
 }
 
-func (r *AccountsRepository) UpdateAccount(ctx context.Context, accountID int, name string, accountType string, accountNumber *string, balance float64, currency string) (*models.Account, error) {
+func (r *AccountsRepository) UpdateAccount(ctx context.Context, accountID, userID int, name string, accountType string, accountNumber *string, balance float64, currency string) (*models.Account, error) {
 	var a models.Account
 	err := r.db.QueryRow(ctx,
 		`UPDATE accounts SET name = $1, type = $2, account_number = $3, balance = $4, currency = $5, updated_at = NOW()
-		 WHERE id = $6
+			 WHERE id = $6 AND user_id = $7
 		 RETURNING id, user_id, name, type, account_number, balance, created_at, updated_at, currency`,
-		name, accountType, accountNumber, balance, currency, accountID,
+		name, accountType, accountNumber, balance, currency, accountID, userID,
 	).Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.AccountNumber, &a.Balance, &a.CreatedAt, &a.UpdatedAt, &a.Currency)
 	if err != nil {
 		return nil, err

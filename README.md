@@ -1,249 +1,196 @@
-# Budget App API
+[![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/golang-migrate/migrate/ci.yaml?branch=master)](https://github.com/golang-migrate/migrate/actions/workflows/ci.yaml?query=branch%3Amaster)
+[![GoDoc](https://pkg.go.dev/badge/github.com/golang-migrate/migrate)](https://pkg.go.dev/github.com/golang-migrate/migrate/v4)
+[![Coverage Status](https://img.shields.io/coveralls/github/golang-migrate/migrate/master.svg)](https://coveralls.io/github/golang-migrate/migrate?branch=master)
+[![packagecloud.io](https://img.shields.io/badge/deb-packagecloud.io-844fec.svg)](https://packagecloud.io/golang-migrate/migrate?filter=debs)
+[![Docker Pulls](https://img.shields.io/docker/pulls/migrate/migrate.svg)](https://hub.docker.com/r/migrate/migrate/)
+![Supported Go Versions](https://img.shields.io/badge/Go-1.24%2C%201.25-lightgrey.svg)
+[![GitHub Release](https://img.shields.io/github/release/golang-migrate/migrate.svg)](https://github.com/golang-migrate/migrate/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/golang-migrate/migrate/v4)](https://goreportcard.com/report/github.com/golang-migrate/migrate/v4)
 
-A modern, production-ready budgeting API built with Go, featuring a clean layered architecture and PostgreSQL for robust data persistence.
+# migrate
+
+__Database migrations written in Go. Use as [CLI](#cli-usage) or import as [library](#use-in-your-go-project).__
+
+* Migrate reads migrations from [sources](#migration-sources)
+   and applies them in correct order to a [database](#databases).
+* Drivers are "dumb", migrate glues everything together and makes sure the logic is bulletproof.
+   (Keeps the drivers lightweight, too.)
+* Database drivers don't assume things or try to correct user input. When in doubt, fail.
+
+Forked from [mattes/migrate](https://github.com/mattes/migrate)
+
+## Databases
+
+Database drivers run migrations. [Add a new database?](database/driver.go)
+
+* [PostgreSQL](database/postgres)
+* [PGX v4](database/pgx)
+* [PGX v5](database/pgx/v5)
+* [Redshift](database/redshift)
+* [Ql](database/ql)
+* [Cassandra / ScyllaDB](database/cassandra)
+* [SQLite](database/sqlite)
+* [SQLite3](database/sqlite3) ([todo #165](https://github.com/mattes/migrate/issues/165))
+* [SQLCipher](database/sqlcipher)
+* [MySQL / MariaDB](database/mysql)
+* [Neo4j](database/neo4j)
+* [MongoDB](database/mongodb)
+* [CrateDB](database/crate) ([todo #170](https://github.com/mattes/migrate/issues/170))
+* [Shell](database/shell) ([todo #171](https://github.com/mattes/migrate/issues/171))
+* [Google Cloud Spanner](database/spanner)
+* [CockroachDB](database/cockroachdb)
+* [YugabyteDB](database/yugabytedb)
+* [ClickHouse](database/clickhouse)
+* [Firebird](database/firebird)
+* [MS SQL Server](database/sqlserver)
+* [rqlite](database/rqlite)
+
+### Database URLs
+
+Database connection strings are specified via URLs. The URL format is driver dependent but generally has the form: `dbdriver://username:password@host:port/dbname?param1=true&param2=false`
+
+Any [reserved URL characters](https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters) need to be escaped. Note, the `%` character also [needs to be escaped](https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_the_percent_character)
+
+Explicitly, the following characters need to be escaped:
+`!`, `#`, `$`, `%`, `&`, `'`, `(`, `)`, `*`, `+`, `,`, `/`, `:`, `;`, `=`, `?`, `@`, `[`, `]`
+
+It's easiest to always run the URL parts of your DB connection URL (e.g. username, password, etc) through an URL encoder. See the example Python snippets below:
+
+```bash
+$ python3 -c 'import urllib.parse; print(urllib.parse.quote(input("String to encode: "), ""))'
+String to encode: FAKEpassword!#$%&'()*+,/:;=?@[]
+FAKEpassword%21%23%24%25%26%27%28%29%2A%2B%2C%2F%3A%3B%3D%3F%40%5B%5D
+$ python2 -c 'import urllib; print urllib.quote(raw_input("String to encode: "), "")'
+String to encode: FAKEpassword!#$%&'()*+,/:;=?@[]
+FAKEpassword%21%23%24%25%26%27%28%29%2A%2B%2C%2F%3A%3B%3D%3F%40%5B%5D
+$
+```
+
+## Migration Sources
+
+Source drivers read migrations from local or remote sources. [Add a new source?](source/driver.go)
+
+* [Filesystem](source/file) - read from filesystem
+* [io/fs](source/iofs) - read from a Go [io/fs](https://pkg.go.dev/io/fs#FS)
+* [Go-Bindata](source/go_bindata) - read from embedded binary data ([jteeuwen/go-bindata](https://github.com/jteeuwen/go-bindata))
+* [pkger](source/pkger) - read from embedded binary data ([markbates/pkger](https://github.com/markbates/pkger))
+* [GitHub](source/github) - read from remote GitHub repositories
+* [GitHub Enterprise](source/github_ee) - read from remote GitHub Enterprise repositories
+* [Bitbucket](source/bitbucket) - read from remote Bitbucket repositories
+* [Gitlab](source/gitlab) - read from remote Gitlab repositories
+* [AWS S3](source/aws_s3) - read from Amazon Web Services S3
+* [Google Cloud Storage](source/google_cloud_storage) - read from Google Cloud Platform Storage
+
+## CLI usage
+
+* Simple wrapper around this library.
+* Handles ctrl+c (SIGINT) gracefully.
+* No config search paths, no config files, no magic ENV var injections.
+
+[CLI Documentation](cmd/migrate) (includes CLI install instructions)
+
+### Basic usage
+
+```bash
+$ migrate -source file://path/to/migrations -database postgres://localhost:5432/database up 2
+```
+
+### Docker usage
+
+```bash
+$ docker run -v {{ migration dir }}:/migrations --network host migrate/migrate
+    -path=/migrations/ -database postgres://localhost:5432/database up 2
+```
+
+## Use in your Go project
+
+* API is stable and frozen for this release (v3 & v4).
+* Uses [Go modules](https://golang.org/cmd/go/#hdr-Modules__module_versions__and_more) to manage dependencies.
+* To help prevent database corruptions, it supports graceful stops via `GracefulStop chan bool`.
+* Bring your own logger.
+* Uses `io.Reader` streams internally for low memory overhead.
+* Thread-safe and no goroutine leaks.
+
+__[Go Documentation](https://pkg.go.dev/github.com/golang-migrate/migrate/v4)__
+
+```go
+import (
+    "github.com/golang-migrate/migrate/v4"
+    _ "github.com/golang-migrate/migrate/v4/database/postgres"
+    _ "github.com/golang-migrate/migrate/v4/source/github"
+)
+
+func main() {
+    m, err := migrate.New(
+        "github://mattes:personal-access-token@mattes/migrate_test",
+        "postgres://localhost:5432/database?sslmode=enable")
+    m.Steps(2)
+}
+```
+
+Want to use an existing database client?
+
+```go
+import (
+    "database/sql"
+    _ "github.com/lib/pq"
+    "github.com/golang-migrate/migrate/v4"
+    "github.com/golang-migrate/migrate/v4/database/postgres"
+    _ "github.com/golang-migrate/migrate/v4/source/file"
+)
+
+func main() {
+    db, err := sql.Open("postgres", "postgres://localhost:5432/database?sslmode=enable")
+    driver, err := postgres.WithInstance(db, &postgres.Config{})
+    m, err := migrate.NewWithDatabaseInstance(
+        "file:///migrations",
+        "postgres", driver)
+    m.Up() // or m.Steps(2) if you want to explicitly set the number of migrations to run
+}
+```
+
+## Getting started
+
+Go to [getting started](GETTING_STARTED.md)
+
+## Tutorials
+
+* [CockroachDB](database/cockroachdb/TUTORIAL.md)
+* [PostgreSQL](database/postgres/TUTORIAL.md)
+
+(more tutorials to come)
+
+## Migration files
+
+Each migration has an up and down migration. [Why?](FAQ.md#why-two-separate-files-up-and-down-for-a-migration)
+
+```bash
+1481574547_create_users_table.up.sql
+1481574547_create_users_table.down.sql
+```
+
+[Best practices: How to write migrations.](MIGRATIONS.md)
+
+## Coming from another db migration tool?
+
+Check out [migradaptor](https://github.com/musinit/migradaptor/).
+*Note: migradaptor is not affiliated or supported by this project*
+
+## Versions
+
+Version | Supported? | Import | Notes
+--------|------------|--------|------
+**master** | :white_check_mark: | `import "github.com/golang-migrate/migrate/v4"` | New features and bug fixes arrive here first |
+**v4** | :white_check_mark: | `import "github.com/golang-migrate/migrate/v4"` | Used for stable releases |
+**v3** | :x: | `import "github.com/golang-migrate/migrate"` (with package manager) or `import "gopkg.in/golang-migrate/migrate.v3"` (not recommended) | **DO NOT USE** - No longer supported |
+
+## Development and Contributing
+
+Yes, please! [`Makefile`](Makefile) is your friend,
+read the [development guide](CONTRIBUTING.md).
+
+Also have a look at the [FAQ](FAQ.md).
 
 ---
 
-## Overview
-
-The Budget App API provides a secure RESTful interface for managing personal finances. It enables users to create budgets, track transactions, and categorize expenses with ease. Built with maintainability and scalability in mind, this implementation replaces a legacy SQLite-based version with a modular, dependency-injected architecture.
-
----
-
-## Architecture
-
-The application follows a **clean layered architecture** with dependency injection, ensuring separation of concerns and testability.
-
-cmd/
-├── api/main.go # Composition root — wires dependencies, owns routing
-└── migrate-data/ # One-time SQLite → PostgreSQL data migration tool
-
-internal/
-├── config/ # Loads and validates environment variables
-├── database/ # PostgreSQL connection pool (pgxpool)
-├── auth/ # JWT issuance/parsing, bcrypt password hashing
-├── apperr/ # Sentinel errors shared across layers
-├── models/ # Plain structs — data shape with no behavior
-├── repository/ # All SQL queries — returns models or errors
-├── service/ # Business logic + validation; calls repositories
-├── middleware/ # Echo middleware (JWT authentication)
-└── handler/ # HTTP layer: bind requests → call services → JSON responses
-
-migrations/ # Versioned SQL migrations (up/down pairs)
-
-### Request Flow
-
-HTTP Request → Handler → Service → Repository → Database
-↓ ↓ ↓ ↓
-JSON Bind Validation SQL Return Data
-↓ ↓ ↓ ↓
-←←←←←←←←←← JSON Response ←←←←←←←←←←←
-
-- **Handler**: Binds request body, calls service methods, maps errors to HTTP status codes
-- **Service**: Contains business logic, validates input, orchestrates repository calls
-- **Repository**: Executes SQL queries, returns models or domain errors
-- **Errors**: Propagate upward as `apperr` sentinels and map to appropriate HTTP status codes
-
-This architecture replaces the legacy flat structure (one `handlers.go` with mixed SQL, validation, and HTTP) to ensure:
-
-- SQL changes don't affect HTTP code and vice versa
-- Business rules (e.g., "amount must be > 0") are testable without a live database
-- The free-text `category` field is normalized into a dedicated `categories` table
-
----
-
-## Features
-
-- **Secure Authentication**: JWT-based auth with bcrypt password hashing
-- **User registration and login**: register, login, and fetch current user profile
-- **Budget Management**: create, update, and delete budgets with category assignment
-- **Custom Categories**: create and use custom categories for budgets and transactions
-- **Transaction Tracking**: log income and expense transactions with category and date
-- **Summary Reporting**: total income, total expenses, balance, budget stats, and recent monthly trends
-- **PostgreSQL Backend**: robust, concurrent-writer support with proper migrations
-- **Graceful Shutdown**: handles SIGTERM/SIGINT by draining in-flight requests
-- **Environment Configuration**: all settings via environment variables, validated at startup
-- **Modular Design**: clean separation between HTTP, business logic, and data layers
-
-### Current limitations
-
-- Password reset / forgot password flows are not implemented
-- Notification scheduling (end-of-day or start-of-month reminders) is not implemented
-- Family/invite user sharing is not implemented
-- There is no explicit previous-month budget reuse feature in the backend
-- Transaction listing does not currently support date-range or month filters
-
----
-
-## Setup
-
-### Prerequisites
-
-- Go 1.21 or higher
-- PostgreSQL database (local or cloud-hosted)
-- [golang-migrate CLI](https://github.com/golang-migrate/migrate#installation) for schema migrations
-
-### 1. Provision a PostgreSQL Database
-
-Choose any of these excellent options:
-
-- [Neon](https://neon.tech) — Free tier, serverless Postgres with branching
-- [Supabase](https://supabase.com) — Full-featured Postgres with auth and storage
-- [Railway](https://railway.app) — Simple managed Postgres with generous free tier
-- [Render](https://render.com) — Easy-to-use managed Postgres
-- Local installation — For development purposes
-
-### 2. Configure Environment Variables
-
-Copy the example environment file and fill in your values:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your database credentials, JWT secret, and other settings:
-
-```bash
-DATABASE_URL=postgres://user:password@host:5432/budgetapp?sslmode=require
-JWT_SECRET=your-strong-secret-key-here
-PORT=8080
-```
-
-### 3. Resolve Dependencies
-
-The `go.mod` file is included but may need to fetch dependencies:
-
-```bash
-go mod tidy
-```
-
-### 4. Run Schema Migrations
-
-Install the `golang-migrate` CLI if you haven't already, then:
-
-```bash
-export DATABASE_URL="postgres://user:password@host:5432/budgetapp?sslmode=require"
-make migrate-up
-```
-
-Or using the migrate CLI directly:
-
-```bash
-migrate -database "$DATABASE_URL" -path migrations up
-```
-
-### 5. (Optional) Migrate Existing Data
-
-If you have an existing SQLite `budget.db` from the legacy version, migrate it:
-
-```bash
-make migrate-data
-```
-
-
-### 6. Run the Application
-
-```bash
-make run
-```
-
-The server will start on the port specified in your environment (default: `8080`).
-
-## Key Improvements from the Legacy Version
-
-| Aspect           | Legacy Version             | New Version                                  |
-| ---------------- | -------------------------- | -------------------------------------------- |
-| Database         | SQLite (file-based)        | PostgreSQL (production-ready, concurrent)    |
-| Password Hashing | Custom SHA-256             | bcrypt (industry standard)                   |
-| Categories       | Free-text strings          | Normalized categories table                  |
-| Configuration    | Hardcoded in source        | Environment variables with validation        |
-| Architecture     | Monolithic handlers.go     | Layered: handler → service → repository      |
-| Error Handling   | Inconsistent               | Structured sentinel errors with HTTP mapping |
-| Shutdown         | Abrupt termination         | Graceful shutdown with request draining      |
-| Testing          | Difficult (mixed concerns) | Isolated layers for unit testing             |
-
-## Current API Endpoints
-
-### Authentication
-
-| Method | Endpoint             | Description                            |
-| ------ | -------------------- | -------------------------------------- |
-| POST   | `/api/auth/register` | Register a new user and receive JWT    |
-| POST   | `/api/auth/login`    | Authenticate and receive JWT           |
-| GET    | `/api/me`            | Get current authenticated user profile |
-
-### Budgets
-
-| Method | Endpoint           | Description                   |
-| ------ | ------------------ | ----------------------------- |
-| GET    | `/api/budgets`     | List all budgets for the user |
-| POST   | `/api/budgets`     | Create a new budget           |
-| PUT    | `/api/budgets/:id` | Update an existing budget     |
-| DELETE | `/api/budgets/:id` | Delete a budget               |
-
-### Transactions
-
-| Method | Endpoint                | Description            |
-| ------ | ----------------------- | ---------------------- |
-| GET    | `/api/transactions`     | List user transactions |
-| POST   | `/api/transactions`     | Create a transaction   |
-| PUT    | `/api/transactions/:id` | Update a transaction   |
-| DELETE | `/api/transactions/:id` | Delete a transaction   |
-
-### Summary
-
-| Method | Endpoint       | Description                                  |
-| ------ | -------------- | -------------------------------------------- |
-| GET    | `/api/summary` | Get totals, budget stats, and monthly trends |
-
-> Note: All endpoints except `/api/auth/register` and `/api/auth/login` require a valid `Authorization: Bearer <token>` header.
-
-## Development
-
-Making Changes
-
-- Add a new endpoint: Handler → Service → Repository
-- Database changes: create migration files in `migrations/`
-- Environment variables: update `config/config.go` and `.env.example`
-
-### Running Tests
-
-```bash
-go test ./...
-```
-
-Building for Production
-bash
-go build -o budget-api ./cmd/api
-Deployment
-The application is designed for easy deployment to any platform that supports Go:
-
-Fly.io: Deploy Go apps with Fly
-
-Render: Deploy Go on Render
-
-Railway: Go on Railway
-
-AWS/GCP/Azure: Deploy as a containerized application
-
-License
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-Contributing
-Contributions are welcome! Please ensure:
-
-Code follows the established layering pattern
-
-Tests are included for new functionality
-
-Environment variables are documented in .env.example
-
-Database migrations are reversible
-
-Acknowledgments
-Built with Echo web framework
-
-PostgreSQL driver: pgx
-
-Migrations: golang-migrate
-
+Looking for alternatives? [https://awesome-go.com/#database](https://awesome-go.com/#database).

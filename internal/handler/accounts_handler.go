@@ -42,12 +42,17 @@ func (h *AccountHandler) CreateAccount(c echo.Context) error {
 }
 
 func (h *AccountHandler) UpdateAccount(c echo.Context) error {
-	var in models.AccountInput
-	if err := c.Bind(&in); err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
+	accountID, err := parseIDParam(c, "id")
+	if err != nil || accountID <= 0 {
+		return respondClientError(c, http.StatusBadRequest, "invalid account id", err)
 	}
 
-	account, err := h.accounts.Update(c.Request().Context(), currentUserID(c), in)
+	var in models.AccountInput
+	if err := c.Bind(&in); err != nil {
+		return respondClientError(c, http.StatusBadRequest, "invalid request body", err)
+	}
+
+	account, err := h.accounts.Update(c.Request().Context(), accountID, currentUserID(c), in)
 	if err != nil {
 		return respondError(c, err)
 	}
