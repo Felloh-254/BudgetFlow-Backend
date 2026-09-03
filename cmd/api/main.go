@@ -46,7 +46,7 @@ func main() {
 	// Services (business logic)
 	authService := service.NewAuthService(userRepo, tokens)
 	budgetService := service.NewBudgetService(budgetRepo, categoryRepo)
-	transactionService := service.NewTransactionService(transactionRepo, categoryRepo)
+	transactionService := service.NewTransactionService(transactionRepo, categoryRepo, accountRepo)
 	summaryService := service.NewSummaryService(summaryRepo)
 	accountService := service.NewAccountsService(accountRepo)
 

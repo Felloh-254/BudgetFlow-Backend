@@ -16,10 +16,11 @@ import (
 type TransactionService struct {
 	transactions *repository.TransactionRepository
 	categories   *repository.CategoryRepository
+	accounts     *repository.AccountsRepository
 }
 
-func NewTransactionService(transactions *repository.TransactionRepository, categories *repository.CategoryRepository) *TransactionService {
-	return &TransactionService{transactions: transactions, categories: categories}
+func NewTransactionService(transactions *repository.TransactionRepository, categories *repository.CategoryRepository, accounts *repository.AccountsRepository) *TransactionService {
+	return &TransactionService{transactions: transactions, categories: categories, accounts: accounts}
 }
 
 func (s *TransactionService) List(ctx context.Context, userID, limit, offset int) ([]models.Transaction, error) {
@@ -36,6 +37,11 @@ func (s *TransactionService) Create(ctx context.Context, userID int, in models.T
 	if err := validateTransactionInput(in); err != nil {
 		return nil, err
 	}
+	if exists, err := s.accounts.ExistsForUser(ctx, in.AccountID, userID); err != nil {
+		return nil, err
+	} else if !exists {
+		return nil, apperr.ErrNotFound
+	}
 	if in.Date == "" {
 		in.Date = time.Now().Format("2006-01-02")
 	}
@@ -45,7 +51,7 @@ func (s *TransactionService) Create(ctx context.Context, userID int, in models.T
 		return nil, err
 	}
 
-	t, err := s.transactions.Create(ctx, userID, in.BudgetID, cat.ID, strings.TrimSpace(in.Title), in.Amount, in.Type, in.Date, in.Note)
+	t, err := s.transactions.Create(ctx, userID, in.AccountID, in.BudgetID, cat.ID, strings.TrimSpace(in.Title), in.Amount, in.Type, in.Date, in.Note)
 	if err != nil {
 		return nil, err
 	}
@@ -57,13 +63,18 @@ func (s *TransactionService) Update(ctx context.Context, id, userID int, in mode
 	if err := validateTransactionInput(in); err != nil {
 		return nil, err
 	}
+	if exists, err := s.accounts.ExistsForUser(ctx, in.AccountID, userID); err != nil {
+		return nil, err
+	} else if !exists {
+		return nil, apperr.ErrNotFound
+	}
 
 	cat, err := s.categories.FindOrCreate(ctx, userID, strings.TrimSpace(in.Category), in.Type)
 	if err != nil {
 		return nil, err
 	}
 
-	t, err := s.transactions.Update(ctx, id, userID, in.BudgetID, cat.ID, strings.TrimSpace(in.Title), in.Amount, in.Type, in.Date, in.Note)
+	t, err := s.transactions.Update(ctx, id, userID, in.AccountID, in.BudgetID, cat.ID, strings.TrimSpace(in.Title), in.Amount, in.Type, in.Date, in.Note)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apperr.ErrNotFound
@@ -86,6 +97,9 @@ func (s *TransactionService) Delete(ctx context.Context, id, userID int) error {
 }
 
 func validateTransactionInput(in models.TransactionInput) error {
+	if in.AccountID <= 0 {
+		return apperr.Validation("account_id must be greater than 0")
+	}
 	if strings.TrimSpace(in.Title) == "" {
 		return apperr.Validation("title is required")
 	}

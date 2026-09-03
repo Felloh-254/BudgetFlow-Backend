@@ -32,12 +32,15 @@ func (h *TransactionHandler) List(c echo.Context) error {
 func (h *TransactionHandler) Create(c echo.Context) error {
 	var in models.TransactionInput
 	if err := c.Bind(&in); err != nil {
+		c.Logger().Errorf("transaction create bind failed: request_id=%s user_id=%d error=%v", c.Response().Header().Get(echo.HeaderXRequestID), currentUserID(c), err)
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
+	c.Logger().Infof("transaction create: request_id=%s user_id=%d account_id=%d budget_id=%v amount=%.2f type=%s", c.Response().Header().Get(echo.HeaderXRequestID), currentUserID(c), in.AccountID, in.BudgetID, in.Amount, in.Type)
 	t, err := h.transactions.Create(c.Request().Context(), currentUserID(c), in)
 	if err != nil {
 		return respondError(c, err)
 	}
+	c.Logger().Infof("transaction created: request_id=%s user_id=%d transaction_id=%d account_id=%d", c.Response().Header().Get(echo.HeaderXRequestID), currentUserID(c), t.ID, t.AccountID)
 	return c.JSON(http.StatusCreated, t)
 }
 

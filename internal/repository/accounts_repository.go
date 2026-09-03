@@ -51,6 +51,15 @@ func (r *AccountsRepository) ListAccountsByUser(ctx context.Context, userID int)
 	return accounts, rows.Err()
 }
 
+func (r *AccountsRepository) ExistsForUser(ctx context.Context, accountID, userID int) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM accounts WHERE id = $1 AND user_id = $2)`,
+		accountID, userID,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (r *AccountsRepository) UpdateAccount(ctx context.Context, accountID, userID int, name string, accountType string, accountNumber *string, balance float64, currency string) (*models.Account, error) {
 	var a models.Account
 	err := r.db.QueryRow(ctx,
