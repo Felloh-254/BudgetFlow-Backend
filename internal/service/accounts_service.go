@@ -36,7 +36,7 @@ func (s *AccountsService) Update(ctx context.Context, accountID, userID int, in 
 		return nil, err
 	}
 
-	account, err := s.accounts.UpdateAccount(ctx, accountID, userID, in.Name, in.Type, in.AccountNumber, in.Balance, in.Currency)
+	account, err := s.accounts.UpdateAccount(ctx, accountID, userID, in.Name, in.Type, in.AccountNumber, in.Currency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.ErrNotFound
 	}

@@ -56,8 +56,9 @@ func RegisterProtectedRoutes(
 
 	// Transaction routes
 	api.GET("/transactions", transactionHandler.List)
-	api.POST("/transactions", transactionHandler.Create)
-	api.PUT("/transactions/:id", transactionHandler.Update)
+	api.POST("/transactions/income", transactionHandler.CreateIncome)
+	api.POST("/transactions/expense", transactionHandler.CreateExpense)
+	api.POST("/transactions/transfer", transactionHandler.CreateTransfer)
 	api.DELETE("/transactions/:id", transactionHandler.Delete)
 
 	// Summary routes
