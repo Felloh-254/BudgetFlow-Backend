@@ -1,196 +1,145 @@
-[![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/golang-migrate/migrate/ci.yaml?branch=master)](https://github.com/golang-migrate/migrate/actions/workflows/ci.yaml?query=branch%3Amaster)
-[![GoDoc](https://pkg.go.dev/badge/github.com/golang-migrate/migrate)](https://pkg.go.dev/github.com/golang-migrate/migrate/v4)
-[![Coverage Status](https://img.shields.io/coveralls/github/golang-migrate/migrate/master.svg)](https://coveralls.io/github/golang-migrate/migrate?branch=master)
-[![packagecloud.io](https://img.shields.io/badge/deb-packagecloud.io-844fec.svg)](https://packagecloud.io/golang-migrate/migrate?filter=debs)
-[![Docker Pulls](https://img.shields.io/docker/pulls/migrate/migrate.svg)](https://hub.docker.com/r/migrate/migrate/)
-![Supported Go Versions](https://img.shields.io/badge/Go-1.24%2C%201.25-lightgrey.svg)
-[![GitHub Release](https://img.shields.io/github/release/golang-migrate/migrate.svg)](https://github.com/golang-migrate/migrate/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/golang-migrate/migrate/v4)](https://goreportcard.com/report/github.com/golang-migrate/migrate/v4)
+# BudgetFlow Backend
 
-# migrate
+BudgetFlow is a Go REST API for personal finance management. It gives users a single place to manage budgets, accounts, categories, and transactions, then exposes a summary of their financial activity.
 
-__Database migrations written in Go. Use as [CLI](#cli-usage) or import as [library](#use-in-your-go-project).__
+The API uses Echo for HTTP routing, PostgreSQL for persistence, and JWT bearer tokens for authentication.
 
-* Migrate reads migrations from [sources](#migration-sources)
-   and applies them in correct order to a [database](#databases).
-* Drivers are "dumb", migrate glues everything together and makes sure the logic is bulletproof.
-   (Keeps the drivers lightweight, too.)
-* Database drivers don't assume things or try to correct user input. When in doubt, fail.
+## What It Does
 
-Forked from [mattes/migrate](https://github.com/mattes/migrate)
+- Register users and log in with email and password.
+- Create and manage budgets and accounts.
+- Record income, expenses, and transfers between accounts.
+- Keep account balances consistent with transaction ledger entries.
+- Read a financial summary for the authenticated user.
+- Explore the API through the bundled Swagger UI and OpenAPI specification.
 
-## Databases
+## Requirements
 
-Database drivers run migrations. [Add a new database?](database/driver.go)
+- Go 1.22 or newer
+- PostgreSQL
+- The `migrate` CLI for applying database migrations
 
-* [PostgreSQL](database/postgres)
-* [PGX v4](database/pgx)
-* [PGX v5](database/pgx/v5)
-* [Redshift](database/redshift)
-* [Ql](database/ql)
-* [Cassandra / ScyllaDB](database/cassandra)
-* [SQLite](database/sqlite)
-* [SQLite3](database/sqlite3) ([todo #165](https://github.com/mattes/migrate/issues/165))
-* [SQLCipher](database/sqlcipher)
-* [MySQL / MariaDB](database/mysql)
-* [Neo4j](database/neo4j)
-* [MongoDB](database/mongodb)
-* [CrateDB](database/crate) ([todo #170](https://github.com/mattes/migrate/issues/170))
-* [Shell](database/shell) ([todo #171](https://github.com/mattes/migrate/issues/171))
-* [Google Cloud Spanner](database/spanner)
-* [CockroachDB](database/cockroachdb)
-* [YugabyteDB](database/yugabytedb)
-* [ClickHouse](database/clickhouse)
-* [Firebird](database/firebird)
-* [MS SQL Server](database/sqlserver)
-* [rqlite](database/rqlite)
+## Quick Start
 
-### Database URLs
+1. Clone the repository and enter the project directory.
+2. Create a `.env` file in the project root:
 
-Database connection strings are specified via URLs. The URL format is driver dependent but generally has the form: `dbdriver://username:password@host:port/dbname?param1=true&param2=false`
+```dotenv
+PORT=8080
+DATABASE_URL=postgres://user:password@localhost:5432/budgetflow?sslmode=disable
+JWT_SECRET=replace-with-a-long-random-secret
+JWT_EXPIRY_HOURS=24
+CORS_ORIGINS=http://localhost:5173
+```
 
-Any [reserved URL characters](https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters) need to be escaped. Note, the `%` character also [needs to be escaped](https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_the_percent_character)
+`DATABASE_URL` and `JWT_SECRET` are required. The other values have defaults, but setting them explicitly makes local setup easier to understand. URL-encode special characters in database usernames and passwords.
 
-Explicitly, the following characters need to be escaped:
-`!`, `#`, `$`, `%`, `&`, `'`, `(`, `)`, `*`, `+`, `,`, `/`, `:`, `;`, `=`, `?`, `@`, `[`, `]`
-
-It's easiest to always run the URL parts of your DB connection URL (e.g. username, password, etc) through an URL encoder. See the example Python snippets below:
+3. Create the PostgreSQL database named in `DATABASE_URL`.
+4. Apply the schema:
 
 ```bash
-$ python3 -c 'import urllib.parse; print(urllib.parse.quote(input("String to encode: "), ""))'
-String to encode: FAKEpassword!#$%&'()*+,/:;=?@[]
-FAKEpassword%21%23%24%25%26%27%28%29%2A%2B%2C%2F%3A%3B%3D%3F%40%5B%5D
-$ python2 -c 'import urllib; print urllib.quote(raw_input("String to encode: "), "")'
-String to encode: FAKEpassword!#$%&'()*+,/:;=?@[]
-FAKEpassword%21%23%24%25%26%27%28%29%2A%2B%2C%2F%3A%3B%3D%3F%40%5B%5D
-$
+make migrate-up
 ```
 
-## Migration Sources
-
-Source drivers read migrations from local or remote sources. [Add a new source?](source/driver.go)
-
-* [Filesystem](source/file) - read from filesystem
-* [io/fs](source/iofs) - read from a Go [io/fs](https://pkg.go.dev/io/fs#FS)
-* [Go-Bindata](source/go_bindata) - read from embedded binary data ([jteeuwen/go-bindata](https://github.com/jteeuwen/go-bindata))
-* [pkger](source/pkger) - read from embedded binary data ([markbates/pkger](https://github.com/markbates/pkger))
-* [GitHub](source/github) - read from remote GitHub repositories
-* [GitHub Enterprise](source/github_ee) - read from remote GitHub Enterprise repositories
-* [Bitbucket](source/bitbucket) - read from remote Bitbucket repositories
-* [Gitlab](source/gitlab) - read from remote Gitlab repositories
-* [AWS S3](source/aws_s3) - read from Amazon Web Services S3
-* [Google Cloud Storage](source/google_cloud_storage) - read from Google Cloud Platform Storage
-
-## CLI usage
-
-* Simple wrapper around this library.
-* Handles ctrl+c (SIGINT) gracefully.
-* No config search paths, no config files, no magic ENV var injections.
-
-[CLI Documentation](cmd/migrate) (includes CLI install instructions)
-
-### Basic usage
+5. Start the API:
 
 ```bash
-$ migrate -source file://path/to/migrations -database postgres://localhost:5432/database up 2
+make run
 ```
 
-### Docker usage
+The server starts on `http://localhost:8080` by default.
+
+## Verify the Server
 
 ```bash
-$ docker run -v {{ migration dir }}:/migrations --network host migrate/migrate
-    -path=/migrations/ -database postgres://localhost:5432/database up 2
+curl http://localhost:8080/healthz
 ```
 
-## Use in your Go project
+Expected response:
 
-* API is stable and frozen for this release (v3 & v4).
-* Uses [Go modules](https://golang.org/cmd/go/#hdr-Modules__module_versions__and_more) to manage dependencies.
-* To help prevent database corruptions, it supports graceful stops via `GracefulStop chan bool`.
-* Bring your own logger.
-* Uses `io.Reader` streams internally for low memory overhead.
-* Thread-safe and no goroutine leaks.
-
-__[Go Documentation](https://pkg.go.dev/github.com/golang-migrate/migrate/v4)__
-
-```go
-import (
-    "github.com/golang-migrate/migrate/v4"
-    _ "github.com/golang-migrate/migrate/v4/database/postgres"
-    _ "github.com/golang-migrate/migrate/v4/source/github"
-)
-
-func main() {
-    m, err := migrate.New(
-        "github://mattes:personal-access-token@mattes/migrate_test",
-        "postgres://localhost:5432/database?sslmode=enable")
-    m.Steps(2)
-}
+```json
+{"status":"ok"}
 ```
 
-Want to use an existing database client?
+Interactive documentation is available at [http://localhost:8080/docs](http://localhost:8080/docs). The source specification is in [openapi.yaml](openapi.yaml), and the documentation details are in [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
 
-```go
-import (
-    "database/sql"
-    _ "github.com/lib/pq"
-    "github.com/golang-migrate/migrate/v4"
-    "github.com/golang-migrate/migrate/v4/database/postgres"
-    _ "github.com/golang-migrate/migrate/v4/source/file"
-)
+## Authentication
 
-func main() {
-    db, err := sql.Open("postgres", "postgres://localhost:5432/database?sslmode=enable")
-    driver, err := postgres.WithInstance(db, &postgres.Config{})
-    m, err := migrate.NewWithDatabaseInstance(
-        "file:///migrations",
-        "postgres", driver)
-    m.Up() // or m.Steps(2) if you want to explicitly set the number of migrations to run
-}
-```
-
-## Getting started
-
-Go to [getting started](GETTING_STARTED.md)
-
-## Tutorials
-
-* [CockroachDB](database/cockroachdb/TUTORIAL.md)
-* [PostgreSQL](database/postgres/TUTORIAL.md)
-
-(more tutorials to come)
-
-## Migration files
-
-Each migration has an up and down migration. [Why?](FAQ.md#why-two-separate-files-up-and-down-for-a-migration)
+Register or log in first:
 
 ```bash
-1481574547_create_users_table.up.sql
-1481574547_create_users_table.down.sql
+curl -X POST http://localhost:8080/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"password123","name":"Example User"}'
 ```
 
-[Best practices: How to write migrations.](MIGRATIONS.md)
+Both registration and login return a JWT in the `token` field. Send it with protected requests:
 
-## Coming from another db migration tool?
+```bash
+curl http://localhost:8080/api/me \
+  -H 'Authorization: Bearer YOUR_TOKEN'
+```
 
-Check out [migradaptor](https://github.com/musinit/migradaptor/).
-*Note: migradaptor is not affiliated or supported by this project*
+## API Overview
 
-## Versions
+Public endpoints:
 
-Version | Supported? | Import | Notes
---------|------------|--------|------
-**master** | :white_check_mark: | `import "github.com/golang-migrate/migrate/v4"` | New features and bug fixes arrive here first |
-**v4** | :white_check_mark: | `import "github.com/golang-migrate/migrate/v4"` | Used for stable releases |
-**v3** | :x: | `import "github.com/golang-migrate/migrate"` (with package manager) or `import "gopkg.in/golang-migrate/migrate.v3"` (not recommended) | **DO NOT USE** - No longer supported |
+- `POST /api/auth/register` - create an account
+- `POST /api/auth/login` - receive a JWT
+- `POST /api/forgot-password` - request a password reset
+- `PUT /api/password/reset` - reset a password
 
-## Development and Contributing
+Protected endpoints require `Authorization: Bearer <token>`:
 
-Yes, please! [`Makefile`](Makefile) is your friend,
-read the [development guide](CONTRIBUTING.md).
+- `GET /api/me` - current user
+- `GET|POST|PUT|DELETE /api/budgets` - budget management
+- `GET|POST|PUT|DELETE /api/accounts` - account management
+- `GET /api/transactions` - list transactions
+- `POST /api/transactions/income` - record income
+- `POST /api/transactions/expense` - record an expense
+- `POST /api/transactions/transfer` - transfer money between accounts
+- `DELETE /api/transactions/:id` - delete a transaction and reverse its ledger effects
+- `GET /api/summary` - financial summary
 
-Also have a look at the [FAQ](FAQ.md).
+Transaction creation is intentionally split by type. Amounts are supplied as positive values; the API determines the ledger direction from the transaction type.
 
----
+## Project Structure
 
-Looking for alternatives? [https://awesome-go.com/#database](https://awesome-go.com/#database).
+```text
+cmd/api/              Application entry point and dependency wiring
+cmd/migrate-data/     One-time legacy SQLite-to-PostgreSQL migration
+internal/config/      Environment configuration
+internal/routes/      Public and protected route registration
+internal/handler/     HTTP request and response handling
+internal/service/     Business rules
+internal/repository/  PostgreSQL data access and ledger operations
+internal/models/      API and database models
+migrations/           Versioned PostgreSQL schema changes
+docs/                 Swagger UI assets
+openapi.yaml          OpenAPI 3 specification
+```
+
+The application follows a straightforward flow: routes call handlers, handlers call services, and services use repositories. Transaction writes update the transaction, ledger entries, and cached account balances together.
+
+## Useful Commands
+
+```bash
+make run            # start the API
+make build          # build bin/api
+make migrate-up    # apply all pending migrations
+make migrate-down  # roll back the latest migration
+make migrate-data  # import legacy budget.db data once
+make tidy           # normalize Go dependencies
+```
+
+Run `migrate-data` only after applying the migrations to the target PostgreSQL database. It expects the legacy SQLite file at `./budget.db`.
+
+## Database Migrations
+
+Each migration has an `.up.sql` file and a matching `.down.sql` file. Migrations are numbered and should be applied in order. The current schema includes users, categories, budgets, accounts, transactions, ledger entries, and account balance caching.
+
+## Related Documentation
+
+- [API documentation guide](API_DOCUMENTATION.md)
+- [Architecture refactor notes](ARCHITECTURE_REFACTOR.md)
+- [OpenAPI specification](openapi.yaml)

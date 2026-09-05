@@ -113,8 +113,7 @@ func RegisterSwaggerUI(e *echo.Echo) {
 	// Log to help debug
 	e.Logger.Infof("Docs path: %s\n", docsPath)
 
-	// Serve /docs -> index.html
-	e.GET("/docs", func(c echo.Context) error {
+	serveDocs := func(c echo.Context) error {
 		indexPath := filepath.Join(docsPath, "index.html")
 		c.Logger().Infof("Serving docs from: %s\n", indexPath)
 		if _, err := os.Stat(indexPath); err != nil {
@@ -122,18 +121,20 @@ func RegisterSwaggerUI(e *echo.Echo) {
 			return c.JSON(http.StatusNotFound, echo.Map{"error": "file not found", "path": indexPath})
 		}
 		return c.File(indexPath)
-	})
+	}
 
-	// Serve /docs/ -> index.html
-	e.GET("/docs/", func(c echo.Context) error {
-		indexPath := filepath.Join(docsPath, "index.html")
-		return c.File(indexPath)
-	})
+	// Serve both documentation URL conventions.
+	e.GET("/docs", serveDocs)
+	e.GET("/docs/", serveDocs)
+	e.GET("/api-docs", serveDocs)
+	e.GET("/api-docs/", serveDocs)
 
-	// Serve /docs/swagger.yaml
-	e.GET("/docs/swagger.yaml", func(c echo.Context) error {
+	serveSwaggerSpec := func(c echo.Context) error {
 		c.Response().Header().Set(echo.HeaderContentType, "application/x-yaml; charset=UTF-8")
 		yamlPath := filepath.Join(docsPath, "swagger.yaml")
 		return c.File(yamlPath)
-	})
+	}
+
+	e.GET("/docs/swagger.yaml", serveSwaggerSpec)
+	e.GET("/api-docs/swagger.yaml", serveSwaggerSpec)
 }

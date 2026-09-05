@@ -1,0 +1,2 @@
+-- Data backfill migration; intentionally left as a no-op.
+-- Removing these rows would also remove balances created after this migration.
