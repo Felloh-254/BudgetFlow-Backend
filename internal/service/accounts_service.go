@@ -6,6 +6,9 @@ import (
 	"budgetapp/internal/models"
 	"budgetapp/internal/repository"
 	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type AccountsService struct {
@@ -28,8 +31,16 @@ func (s *AccountsService) Create(ctx context.Context, userID int, in models.Acco
 	return s.accounts.CreateAccount(ctx, userID, in.Name, in.Type, in.AccountNumber, in.Balance, in.Currency)
 }
 
-func (s *AccountsService) Update(ctx context.Context, userID int, in models.AccountInput) (*models.Account, error) {
-	return s.accounts.UpdateAccount(ctx, userID, in.Name, in.Type, in.AccountNumber, in.Balance, in.Currency)
+func (s *AccountsService) Update(ctx context.Context, accountID, userID int, in models.AccountInput) (*models.Account, error) {
+	if err := validateAccountInput(in); err != nil {
+		return nil, err
+	}
+
+	account, err := s.accounts.UpdateAccount(ctx, accountID, userID, in.Name, in.Type, in.AccountNumber, in.Currency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperr.ErrNotFound
+	}
+	return account, err
 }
 
 func (s *AccountsService) Delete(ctx context.Context, userID int, accountID int) error {

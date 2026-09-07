@@ -1,249 +1,145 @@
-# Budget App API
+# BudgetFlow Backend
 
-A modern, production-ready budgeting API built with Go, featuring a clean layered architecture and PostgreSQL for robust data persistence.
+BudgetFlow is a Go REST API for personal finance management. It gives users a single place to manage budgets, accounts, categories, and transactions, then exposes a summary of their financial activity.
 
----
+The API uses Echo for HTTP routing, PostgreSQL for persistence, and JWT bearer tokens for authentication.
 
-## Overview
+## What It Does
 
-The Budget App API provides a secure RESTful interface for managing personal finances. It enables users to create budgets, track transactions, and categorize expenses with ease. Built with maintainability and scalability in mind, this implementation replaces a legacy SQLite-based version with a modular, dependency-injected architecture.
+- Register users and log in with email and password.
+- Create and manage budgets and accounts.
+- Record income, expenses, and transfers between accounts.
+- Keep account balances consistent with transaction ledger entries.
+- Read a financial summary for the authenticated user.
+- Explore the API through the bundled Swagger UI and OpenAPI specification.
 
----
+## Requirements
 
-## Architecture
+- Go 1.22 or newer
+- PostgreSQL
+- The `migrate` CLI for applying database migrations
 
-The application follows a **clean layered architecture** with dependency injection, ensuring separation of concerns and testability.
+## Quick Start
 
-cmd/
-├── api/main.go # Composition root — wires dependencies, owns routing
-└── migrate-data/ # One-time SQLite → PostgreSQL data migration tool
+1. Clone the repository and enter the project directory.
+2. Create a `.env` file in the project root:
 
-internal/
-├── config/ # Loads and validates environment variables
-├── database/ # PostgreSQL connection pool (pgxpool)
-├── auth/ # JWT issuance/parsing, bcrypt password hashing
-├── apperr/ # Sentinel errors shared across layers
-├── models/ # Plain structs — data shape with no behavior
-├── repository/ # All SQL queries — returns models or errors
-├── service/ # Business logic + validation; calls repositories
-├── middleware/ # Echo middleware (JWT authentication)
-└── handler/ # HTTP layer: bind requests → call services → JSON responses
-
-migrations/ # Versioned SQL migrations (up/down pairs)
-
-### Request Flow
-
-HTTP Request → Handler → Service → Repository → Database
-↓ ↓ ↓ ↓
-JSON Bind Validation SQL Return Data
-↓ ↓ ↓ ↓
-←←←←←←←←←← JSON Response ←←←←←←←←←←←
-
-- **Handler**: Binds request body, calls service methods, maps errors to HTTP status codes
-- **Service**: Contains business logic, validates input, orchestrates repository calls
-- **Repository**: Executes SQL queries, returns models or domain errors
-- **Errors**: Propagate upward as `apperr` sentinels and map to appropriate HTTP status codes
-
-This architecture replaces the legacy flat structure (one `handlers.go` with mixed SQL, validation, and HTTP) to ensure:
-
-- SQL changes don't affect HTTP code and vice versa
-- Business rules (e.g., "amount must be > 0") are testable without a live database
-- The free-text `category` field is normalized into a dedicated `categories` table
-
----
-
-## Features
-
-- **Secure Authentication**: JWT-based auth with bcrypt password hashing
-- **User registration and login**: register, login, and fetch current user profile
-- **Budget Management**: create, update, and delete budgets with category assignment
-- **Custom Categories**: create and use custom categories for budgets and transactions
-- **Transaction Tracking**: log income and expense transactions with category and date
-- **Summary Reporting**: total income, total expenses, balance, budget stats, and recent monthly trends
-- **PostgreSQL Backend**: robust, concurrent-writer support with proper migrations
-- **Graceful Shutdown**: handles SIGTERM/SIGINT by draining in-flight requests
-- **Environment Configuration**: all settings via environment variables, validated at startup
-- **Modular Design**: clean separation between HTTP, business logic, and data layers
-
-### Current limitations
-
-- Password reset / forgot password flows are not implemented
-- Notification scheduling (end-of-day or start-of-month reminders) is not implemented
-- Family/invite user sharing is not implemented
-- There is no explicit previous-month budget reuse feature in the backend
-- Transaction listing does not currently support date-range or month filters
-
----
-
-## Setup
-
-### Prerequisites
-
-- Go 1.21 or higher
-- PostgreSQL database (local or cloud-hosted)
-- [golang-migrate CLI](https://github.com/golang-migrate/migrate#installation) for schema migrations
-
-### 1. Provision a PostgreSQL Database
-
-Choose any of these excellent options:
-
-- [Neon](https://neon.tech) — Free tier, serverless Postgres with branching
-- [Supabase](https://supabase.com) — Full-featured Postgres with auth and storage
-- [Railway](https://railway.app) — Simple managed Postgres with generous free tier
-- [Render](https://render.com) — Easy-to-use managed Postgres
-- Local installation — For development purposes
-
-### 2. Configure Environment Variables
-
-Copy the example environment file and fill in your values:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your database credentials, JWT secret, and other settings:
-
-```bash
-DATABASE_URL=postgres://user:password@host:5432/budgetapp?sslmode=require
-JWT_SECRET=your-strong-secret-key-here
+```dotenv
 PORT=8080
+DATABASE_URL=postgres://user:password@localhost:5432/budgetflow?sslmode=disable
+JWT_SECRET=replace-with-a-long-random-secret
+JWT_EXPIRY_HOURS=24
+CORS_ORIGINS=http://localhost:5173
 ```
 
-### 3. Resolve Dependencies
+`DATABASE_URL` and `JWT_SECRET` are required. The other values have defaults, but setting them explicitly makes local setup easier to understand. URL-encode special characters in database usernames and passwords.
 
-The `go.mod` file is included but may need to fetch dependencies:
-
-```bash
-go mod tidy
-```
-
-### 4. Run Schema Migrations
-
-Install the `golang-migrate` CLI if you haven't already, then:
+3. Create the PostgreSQL database named in `DATABASE_URL`.
+4. Apply the schema:
 
 ```bash
-export DATABASE_URL="postgres://user:password@host:5432/budgetapp?sslmode=require"
 make migrate-up
 ```
 
-Or using the migrate CLI directly:
-
-```bash
-migrate -database "$DATABASE_URL" -path migrations up
-```
-
-### 5. (Optional) Migrate Existing Data
-
-If you have an existing SQLite `budget.db` from the legacy version, migrate it:
-
-```bash
-make migrate-data
-```
-
-
-### 6. Run the Application
+5. Start the API:
 
 ```bash
 make run
 ```
 
-The server will start on the port specified in your environment (default: `8080`).
+The server starts on `http://localhost:8080` by default.
 
-## Key Improvements from the Legacy Version
-
-| Aspect           | Legacy Version             | New Version                                  |
-| ---------------- | -------------------------- | -------------------------------------------- |
-| Database         | SQLite (file-based)        | PostgreSQL (production-ready, concurrent)    |
-| Password Hashing | Custom SHA-256             | bcrypt (industry standard)                   |
-| Categories       | Free-text strings          | Normalized categories table                  |
-| Configuration    | Hardcoded in source        | Environment variables with validation        |
-| Architecture     | Monolithic handlers.go     | Layered: handler → service → repository      |
-| Error Handling   | Inconsistent               | Structured sentinel errors with HTTP mapping |
-| Shutdown         | Abrupt termination         | Graceful shutdown with request draining      |
-| Testing          | Difficult (mixed concerns) | Isolated layers for unit testing             |
-
-## Current API Endpoints
-
-### Authentication
-
-| Method | Endpoint             | Description                            |
-| ------ | -------------------- | -------------------------------------- |
-| POST   | `/api/auth/register` | Register a new user and receive JWT    |
-| POST   | `/api/auth/login`    | Authenticate and receive JWT           |
-| GET    | `/api/me`            | Get current authenticated user profile |
-
-### Budgets
-
-| Method | Endpoint           | Description                   |
-| ------ | ------------------ | ----------------------------- |
-| GET    | `/api/budgets`     | List all budgets for the user |
-| POST   | `/api/budgets`     | Create a new budget           |
-| PUT    | `/api/budgets/:id` | Update an existing budget     |
-| DELETE | `/api/budgets/:id` | Delete a budget               |
-
-### Transactions
-
-| Method | Endpoint                | Description            |
-| ------ | ----------------------- | ---------------------- |
-| GET    | `/api/transactions`     | List user transactions |
-| POST   | `/api/transactions`     | Create a transaction   |
-| PUT    | `/api/transactions/:id` | Update a transaction   |
-| DELETE | `/api/transactions/:id` | Delete a transaction   |
-
-### Summary
-
-| Method | Endpoint       | Description                                  |
-| ------ | -------------- | -------------------------------------------- |
-| GET    | `/api/summary` | Get totals, budget stats, and monthly trends |
-
-> Note: All endpoints except `/api/auth/register` and `/api/auth/login` require a valid `Authorization: Bearer <token>` header.
-
-## Development
-
-Making Changes
-
-- Add a new endpoint: Handler → Service → Repository
-- Database changes: create migration files in `migrations/`
-- Environment variables: update `config/config.go` and `.env.example`
-
-### Running Tests
+## Verify the Server
 
 ```bash
-go test ./...
+curl http://localhost:8080/healthz
 ```
 
-Building for Production
-bash
-go build -o budget-api ./cmd/api
-Deployment
-The application is designed for easy deployment to any platform that supports Go:
+Expected response:
 
-Fly.io: Deploy Go apps with Fly
+```json
+{"status":"ok"}
+```
 
-Render: Deploy Go on Render
+Interactive documentation is available at [http://localhost:8080/docs](http://localhost:8080/docs). The source specification is in [openapi.yaml](openapi.yaml), and the documentation details are in [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
 
-Railway: Go on Railway
+## Authentication
 
-AWS/GCP/Azure: Deploy as a containerized application
+Register or log in first:
 
-License
-This project is licensed under the MIT License - see the LICENSE file for details.
+```bash
+curl -X POST http://localhost:8080/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"password123","name":"Example User"}'
+```
 
-Contributing
-Contributions are welcome! Please ensure:
+Both registration and login return a JWT in the `token` field. Send it with protected requests:
 
-Code follows the established layering pattern
+```bash
+curl http://localhost:8080/api/me \
+  -H 'Authorization: Bearer YOUR_TOKEN'
+```
 
-Tests are included for new functionality
+## API Overview
 
-Environment variables are documented in .env.example
+Public endpoints:
 
-Database migrations are reversible
+- `POST /api/auth/register` - create an account
+- `POST /api/auth/login` - receive a JWT
+- `POST /api/forgot-password` - request a password reset
+- `PUT /api/password/reset` - reset a password
 
-Acknowledgments
-Built with Echo web framework
+Protected endpoints require `Authorization: Bearer <token>`:
 
-PostgreSQL driver: pgx
+- `GET /api/me` - current user
+- `GET|POST|PUT|DELETE /api/budgets` - budget management
+- `GET|POST|PUT|DELETE /api/accounts` - account management
+- `GET /api/transactions` - list transactions
+- `POST /api/transactions/income` - record income
+- `POST /api/transactions/expense` - record an expense
+- `POST /api/transactions/transfer` - transfer money between accounts
+- `DELETE /api/transactions/:id` - delete a transaction and reverse its ledger effects
+- `GET /api/summary` - financial summary
 
-Migrations: golang-migrate
+Transaction creation is intentionally split by type. Amounts are supplied as positive values; the API determines the ledger direction from the transaction type.
 
+## Project Structure
+
+```text
+cmd/api/              Application entry point and dependency wiring
+cmd/migrate-data/     One-time legacy SQLite-to-PostgreSQL migration
+internal/config/      Environment configuration
+internal/routes/      Public and protected route registration
+internal/handler/     HTTP request and response handling
+internal/service/     Business rules
+internal/repository/  PostgreSQL data access and ledger operations
+internal/models/      API and database models
+migrations/           Versioned PostgreSQL schema changes
+docs/                 Swagger UI assets
+openapi.yaml          OpenAPI 3 specification
+```
+
+The application follows a straightforward flow: routes call handlers, handlers call services, and services use repositories. Transaction writes update the transaction, ledger entries, and cached account balances together.
+
+## Useful Commands
+
+```bash
+make run            # start the API
+make build          # build bin/api
+make migrate-up    # apply all pending migrations
+make migrate-down  # roll back the latest migration
+make migrate-data  # import legacy budget.db data once
+make tidy           # normalize Go dependencies
+```
+
+Run `migrate-data` only after applying the migrations to the target PostgreSQL database. It expects the legacy SQLite file at `./budget.db`.
+
+## Database Migrations
+
+Each migration has an `.up.sql` file and a matching `.down.sql` file. Migrations are numbered and should be applied in order. The current schema includes users, categories, budgets, accounts, transactions, ledger entries, and account balance caching.
+
+## Related Documentation
+
+- [API documentation guide](API_DOCUMENTATION.md)
+- [Architecture refactor notes](ARCHITECTURE_REFACTOR.md)
+- [OpenAPI specification](openapi.yaml)

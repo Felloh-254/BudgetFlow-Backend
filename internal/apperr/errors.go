@@ -14,8 +14,8 @@ var (
 
 	ErrInvalidAccountName     = errors.New("invalid account name")
 	ErrInvalidAccountType     = errors.New("invalid account type")
-	ErrUnsupportedAccountType = errors.New("Unsuported account type")
-	ErrAccountNameRequired    = errors.New("Account name is required")
+	ErrUnsupportedAccountType = errors.New("unsupported account type")
+	ErrAccountNameRequired    = errors.New("account name is required")
 	ErrInvalidBalance         = errors.New("invalid balance")
 	ErrUnsupportedCurrency    = errors.New("unsupported currency")
 )

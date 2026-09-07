@@ -42,11 +42,13 @@ func main() {
 	transactionRepo := repository.NewTransactionRepository(pool)
 	summaryRepo := repository.NewSummaryRepository(pool)
 	accountRepo := repository.NewAccountsRepository(pool)
+	ledgerRepo := repository.NewLedgerRepository(pool)
+	balanceRepo := repository.NewAccountBalanceRepository(pool)
 
 	// Services (business logic)
 	authService := service.NewAuthService(userRepo, tokens)
 	budgetService := service.NewBudgetService(budgetRepo, categoryRepo)
-	transactionService := service.NewTransactionService(transactionRepo, categoryRepo)
+	transactionService := service.NewTransactionService(transactionRepo, categoryRepo, accountRepo, ledgerRepo, balanceRepo, pool)
 	summaryService := service.NewSummaryService(summaryRepo)
 	accountService := service.NewAccountsService(accountRepo)
 

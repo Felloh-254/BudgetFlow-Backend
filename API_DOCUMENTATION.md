@@ -22,19 +22,18 @@ A complete OpenAPI 3.0 specification has been created at `openapi.yaml` with:
 ### 3. Documentation Endpoint
 Access the interactive API documentation at:
 ```
-http://localhost:8080/api-docs
+http://localhost:3000/api-docs
 ```
 
 ## Accessing the API Documentation
 
 ### Interactive Swagger UI
 1. Start your server: `go run cmd/api/main.go`
-2. Visit: `http://localhost:8080/api-docs`
+2. Visit: `http://localhost:3000/api-docs`
 3. The interface shows all endpoints with descriptions and allows you to test them directly
 
 ### OpenAPI Specification Files
-- **YAML format**: `http://localhost:8080/api-docs/swagger.yaml`
-- **JSON format**: `http://localhost:8080/api-docs/openapi.json`
+- **YAML format**: `http://localhost:3000/api-docs/swagger.yaml`
 
 These can be used with:
 - [Swagger UI](https://swagger.io/tools/swagger-ui/)
@@ -75,7 +74,7 @@ Located in `RegisterProtectedRoutes()`:
 ## Using the Swagger UI
 
 ### Testing Endpoints
-1. Navigate to `http://localhost:8080/api-docs`
+1. Navigate to `http://localhost:3000/api-docs`
 2. Expand an endpoint section to see details
 3. Click "Try it out" to test an endpoint
 4. For protected endpoints, click the lock icon and add your JWT token
@@ -128,7 +127,7 @@ go run cmd/api/main.go
 curl http://localhost:8080/healthz
 
 # View API docs
-open http://localhost:8080/api-docs
+open http://localhost:3000/api-docs
 ```
 
 ## Troubleshooting

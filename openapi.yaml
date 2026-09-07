@@ -455,7 +455,11 @@ paths:
                 - type
                 - category
                 - date
+                - account_id
               properties:
+                account_id:
+                  type: integer
+                  example: 2
                 title:
                   type: string
                   example: "Grocery shopping"
@@ -522,6 +526,9 @@ paths:
             schema:
               type: object
               properties:
+                account_id:
+                  type: integer
+                  example: 2
                 title:
                   type: string
                 amount:
@@ -659,6 +666,7 @@ components:
       required:
         - id
         - user_id
+        - account_id
         - category_id
         - category
         - name
@@ -672,6 +680,9 @@ components:
         user_id:
           type: integer
           example: 1
+        account_id:
+          type: integer
+          example: 2
         category_id:
           type: integer
           example: 1

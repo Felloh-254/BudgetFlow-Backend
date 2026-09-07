@@ -23,7 +23,7 @@ type Config struct {
 }
 
 func Load() *Config {
-	if err := godotenv.Load("../../.env"); err != nil {
+	if err := godotenv.Load(".env"); err != nil {
 		log.Println("no .env file found, relying on environment variables")
 	}
 

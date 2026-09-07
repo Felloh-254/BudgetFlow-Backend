@@ -18,6 +18,7 @@ func NewTransactionHandler(transactions *service.TransactionService) *Transactio
 	return &TransactionHandler{transactions: transactions}
 }
 
+// List returns all transactions for the current user
 func (h *TransactionHandler) List(c echo.Context) error {
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	offset, _ := strconv.Atoi(c.QueryParam("offset"))
@@ -29,34 +30,58 @@ func (h *TransactionHandler) List(c echo.Context) error {
 	return c.JSON(http.StatusOK, txns)
 }
 
-func (h *TransactionHandler) Create(c echo.Context) error {
+// CreateIncome creates an income transaction
+func (h *TransactionHandler) CreateIncome(c echo.Context) error {
 	var in models.TransactionInput
 	if err := c.Bind(&in); err != nil {
+		c.Logger().Errorf("income create bind failed: user_id=%d error=%v", currentUserID(c), err)
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
-	t, err := h.transactions.Create(c.Request().Context(), currentUserID(c), in)
+	in.Type = "income"
+
+	detail, err := h.transactions.CreateIncome(c.Request().Context(), currentUserID(c), in)
 	if err != nil {
 		return respondError(c, err)
 	}
-	return c.JSON(http.StatusCreated, t)
+	c.Logger().Infof("income created: user_id=%d transaction_id=%d amount=%.2f", currentUserID(c), detail.Transaction.ID, detail.Entries[0].Amount)
+	return c.JSON(http.StatusCreated, detail)
 }
 
-func (h *TransactionHandler) Update(c echo.Context) error {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid id"})
-	}
+// CreateExpense creates an expense transaction
+func (h *TransactionHandler) CreateExpense(c echo.Context) error {
 	var in models.TransactionInput
 	if err := c.Bind(&in); err != nil {
+		c.Logger().Errorf("expense create bind failed: user_id=%d error=%v", currentUserID(c), err)
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
-	t, err := h.transactions.Update(c.Request().Context(), id, currentUserID(c), in)
+	in.Type = "expense"
+
+	detail, err := h.transactions.CreateExpense(c.Request().Context(), currentUserID(c), in)
 	if err != nil {
 		return respondError(c, err)
 	}
-	return c.JSON(http.StatusOK, t)
+	c.Logger().Infof("expense created: user_id=%d transaction_id=%d amount=%.2f", currentUserID(c), detail.Transaction.ID, -detail.Entries[0].Amount)
+	return c.JSON(http.StatusCreated, detail)
 }
 
+// CreateTransfer creates a transfer between two accounts
+func (h *TransactionHandler) CreateTransfer(c echo.Context) error {
+	var in models.TransferInput
+	if err := c.Bind(&in); err != nil {
+		c.Logger().Errorf("transfer create bind failed: user_id=%d error=%v", currentUserID(c), err)
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
+	}
+
+	detail, err := h.transactions.CreateTransfer(c.Request().Context(), currentUserID(c), in)
+	if err != nil {
+		return respondError(c, err)
+	}
+	c.Logger().Infof("transfer created: user_id=%d transaction_id=%d amount=%.2f from=%d to=%d",
+		currentUserID(c), detail.Transaction.ID, detail.Entries[0].Amount, in.FromAccountID, in.ToAccountID)
+	return c.JSON(http.StatusCreated, detail)
+}
+
+// Delete removes a transaction
 func (h *TransactionHandler) Delete(c echo.Context) error {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
