@@ -7,20 +7,18 @@ info:
     name: BudgetFlow Support
   license:
     name: MIT
-
 servers:
-  - url: http://localhost:8080
-    description: Development server
-  - url: https://api.budgetflow.com
-    description: Production server
-
+- url: http://localhost:8080
+  description: Development server
+- url: https://api.budgetflow.com
+  description: Production server
 paths:
   /healthz:
     get:
       summary: Health check
       description: Returns the health status of the API
       tags:
-        - System
+      - System
       responses:
         '200':
           description: Service is healthy
@@ -31,14 +29,13 @@ paths:
                 properties:
                   status:
                     type: string
-                    example: "ok"
-
+                    example: ok
   /api/auth/register:
     post:
       summary: Register a new user
       description: Create a new user account with email and password
       tags:
-        - Authentication
+      - Authentication
       requestBody:
         required: true
         content:
@@ -46,22 +43,22 @@ paths:
             schema:
               type: object
               required:
-                - email
-                - password
-                - name
+              - email
+              - password
+              - name
               properties:
                 email:
                   type: string
                   format: email
-                  example: "user@example.com"
+                  example: user@example.com
                 password:
                   type: string
                   format: password
                   minLength: 6
-                  example: "securepassword123"
+                  example: securepassword123
                 name:
                   type: string
-                  example: "John Doe"
+                  example: John Doe
       responses:
         '200':
           description: User registered successfully
@@ -81,13 +78,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /api/auth/login:
     post:
       summary: User login
       description: Authenticate user and receive JWT token
       tags:
-        - Authentication
+      - Authentication
       requestBody:
         required: true
         content:
@@ -95,17 +91,17 @@ paths:
             schema:
               type: object
               required:
-                - email
-                - password
+              - email
+              - password
               properties:
                 email:
                   type: string
                   format: email
-                  example: "user@example.com"
+                  example: user@example.com
                 password:
                   type: string
                   format: password
-                  example: "securepassword123"
+                  example: securepassword123
       responses:
         '200':
           description: Login successful
@@ -117,7 +113,7 @@ paths:
                   token:
                     type: string
                     description: JWT token for authenticated requests
-                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
         '401':
           description: Invalid email or password
           content:
@@ -130,13 +126,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /api/forgot-password:
     post:
       summary: Request password reset
       description: Send password reset instructions to user email
       tags:
-        - Authentication
+      - Authentication
       requestBody:
         required: true
         content:
@@ -144,12 +139,12 @@ paths:
             schema:
               type: object
               required:
-                - email
+              - email
               properties:
                 email:
                   type: string
                   format: email
-                  example: "user@example.com"
+                  example: user@example.com
       responses:
         '200':
           description: Reset instructions sent
@@ -160,20 +155,19 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: "Password reset instructions sent to email"
+                    example: Password reset instructions sent to email
         '400':
           description: Invalid input
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /api/password/reset:
     put:
       summary: Reset password
       description: Reset user password using reset token
       tags:
-        - Authentication
+      - Authentication
       requestBody:
         required: true
         content:
@@ -181,17 +175,17 @@ paths:
             schema:
               type: object
               required:
-                - token
-                - new_password
+              - token
+              - new_password
               properties:
                 token:
                   type: string
-                  example: "reset_token_123"
+                  example: reset_token_123
                 new_password:
                   type: string
                   format: password
                   minLength: 6
-                  example: "newpassword123"
+                  example: newpassword123
       responses:
         '200':
           description: Password reset successful
@@ -202,22 +196,21 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: "Password updated successfully"
+                    example: Password updated successfully
         '400':
           description: Invalid token or password
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /api/me:
     get:
       summary: Get current user
       description: Retrieve the authenticated user's profile information
       tags:
-        - User
+      - User
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: User profile retrieved
@@ -231,21 +224,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /api/budgets:
     get:
       summary: List all budgets
       description: Retrieve all budgets for the authenticated user
       tags:
-        - Budgets
+      - Budgets
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: category
-          in: query
-          description: Filter by category name
-          schema:
-            type: string
+      - name: category
+        in: query
+        description: Filter by category name
+        schema:
+          type: string
       responses:
         '200':
           description: List of budgets
@@ -265,9 +257,9 @@ paths:
       summary: Create a new budget
       description: Create a new budget for a spending category
       tags:
-        - Budgets
+      - Budgets
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -275,23 +267,23 @@ paths:
             schema:
               type: object
               required:
-                - name
-                - amount
-                - category
+              - name
+              - amount
+              - category
               properties:
                 name:
                   type: string
-                  example: "Groceries"
+                  example: Groceries
                 amount:
                   type: number
                   format: float
-                  example: 500.00
+                  example: 500.0
                 category:
                   type: string
-                  example: "Food"
+                  example: Food
                 color:
                   type: string
-                  example: "#FF5733"
+                  example: '#FF5733'
       responses:
         '201':
           description: Budget created
@@ -311,21 +303,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /api/budgets/{id}:
     put:
       summary: Update a budget
       description: Update an existing budget
       tags:
-        - Budgets
+      - Budgets
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
       requestBody:
         required: true
         content:
@@ -371,15 +362,15 @@ paths:
       summary: Delete a budget
       description: Delete a budget and all associated data
       tags:
-        - Budgets
+      - Budgets
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
       responses:
         '204':
           description: Budget deleted
@@ -395,32 +386,64 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /api/transactions:
     get:
       summary: List all transactions
       description: Retrieve all transactions for the authenticated user
       tags:
-        - Transactions
+      - Transactions
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: budget_id
-          in: query
-          description: Filter by budget ID
-          schema:
-            type: integer
-        - name: type
-          in: query
-          description: Filter by type (income or expense)
-          schema:
-            type: string
-            enum: [income, expense]
-        - name: category
-          in: query
-          description: Filter by category
-          schema:
-            type: string
+      - name: limit
+        in: query
+        description: Max number of items to return (1-200)
+        schema:
+          type: integer
+          default: 100
+      - name: offset
+        in: query
+        description: Offset for pagination
+        schema:
+          type: integer
+          default: 0
+      - name: month
+        in: query
+        description: Filter by month (YYYY-MM)
+        schema:
+          type: string
+          example: 2026-09
+      - name: start_date
+        in: query
+        description: Filter from start date (YYYY-MM-DD)
+        schema:
+          type: string
+          format: date
+      - name: end_date
+        in: query
+        description: Filter to end date (YYYY-MM-DD)
+        schema:
+          type: string
+          format: date
+      - name: type
+        in: query
+        description: Filter by transaction type
+        schema:
+          type: string
+          enum:
+          - income
+          - expense
+          - transfer
+      - name: category_id
+        in: query
+        description: Filter by category ID
+        schema:
+          type: integer
+      - name: account_id
+        in: query
+        description: Filter by account ID
+        schema:
+          type: integer
       responses:
         '200':
           description: List of transactions
@@ -440,58 +463,22 @@ paths:
       summary: Create a new transaction
       description: Record a new income or expense transaction
       tags:
-        - Transactions
+      - Transactions
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - title
-                - amount
-                - type
-                - category
-                - date
-                - account_id
-              properties:
-                account_id:
-                  type: integer
-                  example: 2
-                title:
-                  type: string
-                  example: "Grocery shopping"
-                amount:
-                  type: number
-                  format: float
-                  example: 75.50
-                type:
-                  type: string
-                  enum: [income, expense]
-                  example: "expense"
-                category:
-                  type: string
-                  example: "Food"
-                date:
-                  type: string
-                  format: date
-                  example: "2024-08-11"
-                budget_id:
-                  type: integer
-                  nullable: true
-                  example: 1
-                note:
-                  type: string
-                  example: "Weekly groceries"
+              $ref: '#/components/schemas/TransactionInput'
       responses:
         '201':
           description: Transaction created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Transaction'
+                $ref: '#/components/schemas/TransactionDetail'
         '400':
           description: Invalid input
           content:
@@ -504,56 +491,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /api/transactions/{id}:
     put:
       summary: Update a transaction
       description: Update an existing transaction
       tags:
-        - Transactions
+      - Transactions
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                account_id:
-                  type: integer
-                  example: 2
-                title:
-                  type: string
-                amount:
-                  type: number
-                  format: float
-                type:
-                  type: string
-                  enum: [income, expense]
-                category:
-                  type: string
-                date:
-                  type: string
-                  format: date
-                budget_id:
-                  type: integer
-                  nullable: true
-                note:
-                  type: string
+              $ref: '#/components/schemas/UpdateTransactionInput'
       responses:
         '200':
           description: Transaction updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Transaction'
+                $ref: '#/components/schemas/TransactionDetail'
         '400':
           description: Invalid input
           content:
@@ -576,15 +540,15 @@ paths:
       summary: Delete a transaction
       description: Delete a transaction record
       tags:
-        - Transactions
+      - Transactions
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
       responses:
         '204':
           description: Transaction deleted
@@ -600,28 +564,60 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
+    get:
+      summary: Get transaction details
+      description: Retrieve full transaction detail including ledger movements and
+        category mapping
+      tags:
+      - Transactions
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Transaction detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDetail'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/summary:
     get:
       summary: Get financial summary
       description: Get a summary of income, expenses, and budget status
       tags:
-        - Summary
+      - Summary
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: start_date
-          in: query
-          description: Start date for summary (YYYY-MM-DD)
-          schema:
-            type: string
-            format: date
-        - name: end_date
-          in: query
-          description: End date for summary (YYYY-MM-DD)
-          schema:
-            type: string
-            format: date
+      - name: start_date
+        in: query
+        description: Start date for summary (YYYY-MM-DD)
+        schema:
+          type: string
+          format: date
+      - name: end_date
+        in: query
+        description: End date for summary (YYYY-MM-DD)
+        schema:
+          type: string
+          format: date
       responses:
         '200':
           description: Financial summary
@@ -635,16 +631,277 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
+  /api/categories:
+    get:
+      summary: List all categories
+      description: Retrieve all default and custom categories available to the authenticated
+        user
+      tags:
+      - Categories
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: List of categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/accounts:
+    get:
+      summary: List all accounts
+      description: Retrieve all accounts with their current balances for the authenticated
+        user
+      tags:
+      - Accounts
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Account'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Create a new account
+      description: Create a new bank, mobile money, cash, or investment account
+      tags:
+      - Accounts
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountInput'
+      responses:
+        '201':
+          description: Account created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/accounts/{id}:
+    put:
+      summary: Update an account
+      description: Update an account's name, type, account number, or currency
+      tags:
+      - Accounts
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAccountInput'
+      responses:
+        '200':
+          description: Account updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete an account
+      description: Delete an account and its associated balances and ledger history
+      tags:
+      - Accounts
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: account deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/transactions/income:
+    post:
+      summary: Record income transaction
+      description: Records money entering an account, creating a double-entry debit
+        ledger entry
+      tags:
+      - Transactions
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionInput'
+      responses:
+        '201':
+          description: Income recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDetail'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/transactions/expense:
+    post:
+      summary: Record expense transaction
+      description: Records money leaving an account, creating a double-entry credit
+        ledger entry
+      tags:
+      - Transactions
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionInput'
+      responses:
+        '201':
+          description: Expense recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDetail'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/transactions/transfer:
+    post:
+      summary: Record transfer transaction
+      description: Records money moving between two accounts (2-sided ledger transaction)
+      tags:
+      - Transactions
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferInput'
+      responses:
+        '201':
+          description: Transfer completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDetail'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   schemas:
     User:
       type: object
       required:
-        - id
-        - email
-        - name
-        - created_at
+      - id
+      - email
+      - name
+      - created_at
       properties:
         id:
           type: integer
@@ -652,27 +909,26 @@ components:
         email:
           type: string
           format: email
-          example: "user@example.com"
+          example: user@example.com
         name:
           type: string
-          example: "John Doe"
+          example: John Doe
         created_at:
           type: string
           format: date-time
-          example: "2024-08-11T10:30:00Z"
-
+          example: '2024-08-11T10:30:00Z'
     Budget:
       type: object
       required:
-        - id
-        - user_id
-        - account_id
-        - category_id
-        - category
-        - name
-        - amount
-        - spent
-        - created_at
+      - id
+      - user_id
+      - account_id
+      - category_id
+      - category
+      - name
+      - amount
+      - spent
+      - created_at
       properties:
         id:
           type: integer
@@ -688,38 +944,35 @@ components:
           example: 1
         category:
           type: string
-          example: "Food"
+          example: Food
         name:
           type: string
-          example: "Groceries"
+          example: Groceries
         amount:
           type: number
           format: float
-          example: 500.00
+          example: 500.0
         color:
           type: string
-          example: "#FF5733"
+          example: '#FF5733'
         spent:
           type: number
           format: float
-          example: 150.50
+          example: 150.5
         created_at:
           type: string
           format: date-time
-          example: "2024-08-11T10:30:00Z"
-
+          example: '2024-08-11T10:30:00Z'
     Transaction:
       type: object
       required:
-        - id
-        - user_id
-        - category_id
-        - category
-        - title
-        - amount
-        - type
-        - date
-        - created_at
+      - id
+      - user_id
+      - type
+      - title
+      - amount
+      - date
+      - created_at
       properties:
         id:
           type: integer
@@ -727,59 +980,85 @@ components:
         user_id:
           type: integer
           example: 1
-        budget_id:
-          type: integer
-          nullable: true
-          example: 1
-        category_id:
-          type: integer
-          example: 1
-        category:
+        type:
           type: string
-          example: "Food"
+          enum:
+          - income
+          - expense
+          - transfer
+          example: expense
         title:
           type: string
-          example: "Grocery shopping"
+          example: Italian Restaurant
         amount:
           type: number
           format: float
-          example: 75.50
-        type:
+          example: 3500.0
+        category:
           type: string
-          enum: [income, expense]
-          example: "expense"
+          example: Dining
+        category_id:
+          type: integer
+          nullable: true
+          example: 1
+        account_id:
+          type: integer
+          nullable: true
+          example: 5
+        account_name:
+          type: string
+          example: M-Pesa Wallet
+        from_account_id:
+          type: integer
+          nullable: true
+          example: 5
+        from_account_name:
+          type: string
+          example: M-Pesa Wallet
+        to_account_id:
+          type: integer
+          nullable: true
+          example: 2
+        to_account_name:
+          type: string
+          example: KCB Savings
         date:
           type: string
           format: date
-          example: "2024-08-11"
+          example: '2026-09-08'
         note:
           type: string
-          example: "Weekly groceries"
+          example: Family dinner
+        idempotency_key:
+          type: string
+          nullable: true
+          example: uuid-123
         created_at:
           type: string
           format: date-time
-          example: "2024-08-11T10:30:00Z"
-
+        updated_at:
+          type: string
+          format: date-time
     Summary:
       type: object
       required:
-        - total_income
-        - total_expenses
-        - net_balance
-        - budgets
+      - total_income
+      - total_expenses
+      - net_balance
+      - budgets
       properties:
         total_income:
           type: number
           format: float
-          example: 3000.00
+          example: 3000.0
         total_expenses:
           type: number
           format: float
-          example: 1500.00
+          example: 1500.0
         net_balance:
           type: number
           format: float
-          example: 1500.00
+          example: 1500.0
         budgets:
           type: array
           items:
@@ -787,46 +1066,332 @@ components:
             properties:
               category:
                 type: string
-                example: "Food"
+                example: Food
               budget_amount:
                 type: number
                 format: float
-                example: 500.00
+                example: 500.0
               spent:
                 type: number
                 format: float
-                example: 350.00
+                example: 350.0
               remaining:
                 type: number
                 format: float
-                example: 150.00
-
+                example: 150.0
     Error:
       type: object
       required:
-        - error
+      - error
       properties:
         error:
           type: string
-          example: "validation error message"
-
+          example: validation error message
+    Category:
+      type: object
+      required:
+      - id
+      - name
+      - type
+      - color
+      properties:
+        id:
+          type: integer
+          example: 1
+        user_id:
+          type: integer
+          nullable: true
+          example: 1
+        name:
+          type: string
+          example: Dining
+        type:
+          type: string
+          enum:
+          - income
+          - expense
+          example: expense
+        color:
+          type: string
+          example: '#6366f1'
+        created_at:
+          type: string
+          format: date-time
+    Account:
+      type: object
+      required:
+      - id
+      - user_id
+      - name
+      - type
+      - balance
+      - currency
+      properties:
+        id:
+          type: integer
+          example: 1
+        user_id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: M-Pesa Wallet
+        type:
+          type: string
+          enum:
+          - bank
+          - cash
+          - mobile_money
+          - investment
+          example: mobile_money
+        account_number:
+          type: string
+          nullable: true
+          example: 0712345678
+        balance:
+          type: number
+          format: float
+          example: 15000.0
+        currency:
+          type: string
+          enum:
+          - KES
+          - USD
+          - EUR
+          - GBP
+          example: KES
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateAccountInput:
+      type: object
+      required:
+      - name
+      - type
+      - currency
+      properties:
+        name:
+          type: string
+          example: KCB Savings
+        type:
+          type: string
+          enum:
+          - bank
+          - cash
+          - mobile_money
+          - investment
+          example: bank
+        account_number:
+          type: string
+          nullable: true
+          example: '1234567890'
+        balance:
+          type: number
+          format: float
+          example: 1000.0
+        currency:
+          type: string
+          enum:
+          - KES
+          - USD
+          - EUR
+          - GBP
+          example: KES
+    UpdateAccountInput:
+      type: object
+      required:
+      - name
+      - type
+      - currency
+      properties:
+        name:
+          type: string
+          example: KCB Primary Account
+        type:
+          type: string
+          enum:
+          - bank
+          - cash
+          - mobile_money
+          - investment
+          example: bank
+        account_number:
+          type: string
+          nullable: true
+          example: '1234567890'
+        currency:
+          type: string
+          enum:
+          - KES
+          - USD
+          - EUR
+          - GBP
+          example: KES
+    TransactionInput:
+      type: object
+      required:
+      - title
+      - amount
+      - type
+      - category
+      - account_id
+      properties:
+        title:
+          type: string
+          example: Grocery shopping
+        amount:
+          type: number
+          format: float
+          example: 75.5
+        type:
+          type: string
+          enum:
+          - income
+          - expense
+          example: expense
+        category:
+          type: string
+          example: Food
+        account_id:
+          type: integer
+          example: 2
+        date:
+          type: string
+          format: date
+          example: '2026-09-08'
+        note:
+          type: string
+          example: Weekly groceries
+        idempotency_key:
+          type: string
+          nullable: true
+          example: uuid-789
+    UpdateTransactionInput:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Updated groceries title
+        date:
+          type: string
+          format: date
+          example: '2026-09-08'
+        note:
+          type: string
+          example: Updated note
+        category:
+          type: string
+          example: Dining
+    TransferInput:
+      type: object
+      required:
+      - title
+      - amount
+      - from_account_id
+      - to_account_id
+      properties:
+        title:
+          type: string
+          example: Transfer KCB to M-Pesa
+        amount:
+          type: number
+          format: float
+          example: 5000.0
+        from_account_id:
+          type: integer
+          example: 1
+        to_account_id:
+          type: integer
+          example: 2
+        date:
+          type: string
+          format: date
+          example: '2026-09-08'
+        note:
+          type: string
+          example: Moving funds
+        idempotency_key:
+          type: string
+          nullable: true
+          example: uuid-999
+    LedgerEntry:
+      type: object
+      required:
+      - id
+      - transaction_id
+      - account_id
+      - amount
+      - entry_type
+      - created_at
+      properties:
+        id:
+          type: integer
+          example: 10
+        transaction_id:
+          type: integer
+          example: 1
+        account_id:
+          type: integer
+          example: 2
+        amount:
+          type: number
+          format: float
+          example: -75.5
+        entry_type:
+          type: string
+          enum:
+          - debit
+          - credit
+          example: credit
+        created_at:
+          type: string
+          format: date-time
+    TransactionDetail:
+      type: object
+      required:
+      - transaction
+      - entries
+      properties:
+        transaction:
+          $ref: '#/components/schemas/Transaction'
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerEntry'
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+        account_names:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            '1': KCB Savings
+            '2': M-Pesa Wallet
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
       description: JWT token obtained from login endpoint
-
 tags:
-  - name: System
-    description: System health and status
-  - name: Authentication
-    description: User authentication and password management
-  - name: User
-    description: User profile and information
-  - name: Budgets
-    description: Budget creation and management
-  - name: Transactions
-    description: Income and expense transaction management
-  - name: Summary
-    description: Financial summaries and reports
+- name: System
+  description: System health and status
+- name: Authentication
+  description: User authentication and password management
+- name: User
+  description: User profile and information
+- name: Categories
+  description: Category listing and management
+- name: Accounts
+  description: Account creation, listing, and balances
+- name: Budgets
+  description: Budget creation and management
+- name: Transactions
+  description: Income, expense, and transfer transaction management
+- name: Summary
+  description: Financial summaries and reports

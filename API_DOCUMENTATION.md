@@ -56,20 +56,33 @@ Located in `RegisterProtectedRoutes()`:
 **User:**
 - `GET /api/me` - Get current user profile
 
+**Categories:**
+- `GET /api/categories` - List categories available to the user
+
+**Accounts:**
+- `GET /api/accounts` - List all user accounts with current balances
+- `POST /api/accounts` - Create a new account
+- `PUT /api/accounts/:id` - Update account details
+- `DELETE /api/accounts/:id` - Delete account
+
 **Budgets:**
-- `GET /api/budgets` - List all budgets
+- `GET /api/budgets` - List all budgets (with calculated spending from ledger)
 - `POST /api/budgets` - Create new budget
 - `PUT /api/budgets/:id` - Update budget
 - `DELETE /api/budgets/:id` - Delete budget
 
 **Transactions:**
-- `GET /api/transactions` - List all transactions
-- `POST /api/transactions` - Create transaction
-- `PUT /api/transactions/:id` - Update transaction
-- `DELETE /api/transactions/:id` - Delete transaction
+- `GET /api/transactions` - List transactions (supports `month`, `start_date`, `end_date`, `type`, `category_id`, `account_id`, `limit`, `offset`)
+- `GET /api/transactions/:id` - Get transaction details with entries and categories
+- `POST /api/transactions` - Create transaction (generic dispatcher for income/expense)
+- `PUT /api/transactions/:id` - Update transaction metadata (title, date, note, category)
+- `POST /api/transactions/income` - Record income transaction (credits double-entry ledger)
+- `POST /api/transactions/expense` - Record expense transaction (debits double-entry ledger)
+- `POST /api/transactions/transfer` - Record transfer between accounts
+- `DELETE /api/transactions/:id` - Delete transaction and reverse ledger balances
 
 **Summary:**
-- `GET /api/summary` - Get financial summary
+- `GET /api/summary` - Get financial summary (total income, expenses, net balance, budget stats, monthly points from double-entry ledger)
 
 ## Using the Swagger UI
 
