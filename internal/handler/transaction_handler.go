@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"budgetapp/internal/models"
 	"budgetapp/internal/service"
@@ -18,16 +19,90 @@ func NewTransactionHandler(transactions *service.TransactionService) *Transactio
 	return &TransactionHandler{transactions: transactions}
 }
 
-// List returns all transactions for the current user
+// List returns all transactions for the current user matching filters
 func (h *TransactionHandler) List(c echo.Context) error {
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	offset, _ := strconv.Atoi(c.QueryParam("offset"))
+	catID, _ := strconv.Atoi(c.QueryParam("category_id"))
+	accID, _ := strconv.Atoi(c.QueryParam("account_id"))
 
-	txns, err := h.transactions.List(c.Request().Context(), currentUserID(c), limit, offset)
+	filter := models.TransactionFilter{
+		Limit:      limit,
+		Offset:     offset,
+		Month:      c.QueryParam("month"),
+		StartDate:  c.QueryParam("start_date"),
+		EndDate:    c.QueryParam("end_date"),
+		Type:       c.QueryParam("type"),
+		CategoryID: catID,
+		AccountID:  accID,
+	}
+
+	txns, err := h.transactions.List(c.Request().Context(), currentUserID(c), filter)
 	if err != nil {
 		return respondError(c, err)
 	}
 	return c.JSON(http.StatusOK, txns)
+}
+
+// GetByID retrieves a single transaction by ID with full details
+func (h *TransactionHandler) GetByID(c echo.Context) error {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid id"})
+	}
+	detail, err := h.transactions.GetByID(c.Request().Context(), id, currentUserID(c))
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(http.StatusOK, detail)
+}
+
+// Create handles the generic POST /api/transactions endpoint
+func (h *TransactionHandler) Create(c echo.Context) error {
+	var in models.TransactionInput
+	if err := c.Bind(&in); err != nil {
+		c.Logger().Errorf("transaction create bind failed: user_id=%d error=%v", currentUserID(c), err)
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
+	}
+
+	switch strings.ToLower(in.Type) {
+	case "income":
+		in.Type = "income"
+		detail, err := h.transactions.CreateIncome(c.Request().Context(), currentUserID(c), in)
+		if err != nil {
+			return respondError(c, err)
+		}
+		return c.JSON(http.StatusCreated, detail)
+	case "expense":
+		in.Type = "expense"
+		detail, err := h.transactions.CreateExpense(c.Request().Context(), currentUserID(c), in)
+		if err != nil {
+			return respondError(c, err)
+		}
+		return c.JSON(http.StatusCreated, detail)
+	default:
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "type must be 'income' or 'expense'"})
+	}
+}
+
+// Update handles updating transaction metadata
+func (h *TransactionHandler) Update(c echo.Context) error {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid id"})
+	}
+
+	var in models.UpdateTransactionInput
+	if err := c.Bind(&in); err != nil {
+		c.Logger().Errorf("transaction update bind failed: user_id=%d error=%v", currentUserID(c), err)
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
+	}
+
+	detail, err := h.transactions.Update(c.Request().Context(), id, currentUserID(c), in)
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(http.StatusOK, detail)
 }
 
 // CreateIncome creates an income transaction

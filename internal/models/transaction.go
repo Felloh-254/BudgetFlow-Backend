@@ -4,15 +4,44 @@ import "time"
 
 // Transaction represents the financial event itself (income, expense, transfer)
 type Transaction struct {
-	ID             int       `json:"id"`
-	UserID         int       `json:"user_id"`
-	Type           string    `json:"type"` // "income" | "expense" | "transfer"
-	Title          string    `json:"title"`
-	Date           string    `json:"date"` // YYYY-MM-DD
-	Note           string    `json:"note"`
-	IdempotencyKey *string   `json:"idempotency_key,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID              int       `json:"id"`
+	UserID          int       `json:"user_id"`
+	Type            string    `json:"type"` // "income" | "expense" | "transfer"
+	Title           string    `json:"title"`
+	Amount          float64   `json:"amount"`
+	Category        string    `json:"category,omitempty"`
+	CategoryID      *int      `json:"category_id,omitempty"`
+	AccountID       *int      `json:"account_id,omitempty"`
+	AccountName     string    `json:"account_name,omitempty"`
+	FromAccountID   *int      `json:"from_account_id,omitempty"`
+	FromAccountName string    `json:"from_account_name,omitempty"`
+	ToAccountID     *int      `json:"to_account_id,omitempty"`
+	ToAccountName   string    `json:"to_account_name,omitempty"`
+	Date            string    `json:"date"` // YYYY-MM-DD
+	Note            string    `json:"note"`
+	IdempotencyKey  *string   `json:"idempotency_key,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// TransactionFilter holds query parameters for filtering transactions.
+type TransactionFilter struct {
+	Limit      int
+	Offset     int
+	Month      string // YYYY-MM
+	StartDate  string // YYYY-MM-DD
+	EndDate    string // YYYY-MM-DD
+	Type       string // "income", "expense", "transfer"
+	CategoryID int
+	AccountID  int
+}
+
+// UpdateTransactionInput allows updating transaction metadata.
+type UpdateTransactionInput struct {
+	Title    string `json:"title"`
+	Date     string `json:"date"`
+	Note     string `json:"note"`
+	Category string `json:"category,omitempty"`
 }
 
 // LedgerEntry represents a single account movement

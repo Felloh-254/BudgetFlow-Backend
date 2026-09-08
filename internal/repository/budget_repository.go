@@ -18,12 +18,22 @@ func NewBudgetRepository(db *pgxpool.Pool) *BudgetRepository {
 
 const budgetSelectWithSpent = `
 	SELECT b.id, b.user_id, b.category_id, c.name, b.name, b.amount, b.color, b.created_at,
-		COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) AS spent
+		COALESCE(SUM(exp.amount), 0) AS spent
 	FROM budgets b
 	JOIN categories c ON c.id = b.category_id
-	LEFT JOIN transactions t ON t.budget_id = b.id
+	LEFT JOIN (
+		SELECT tc.category_id, t.user_id, ABS(le.amount) AS amount
+		FROM transactions_v2 t
+		JOIN transaction_categories tc ON tc.transaction_id = t.id
+		JOIN ledger_entries le ON le.transaction_id = t.id AND le.amount < 0
+		WHERE t.type = 'expense'
+		UNION ALL
+		SELECT category_id, user_id, amount
+		FROM transactions
+		WHERE type = 'expense'
+	) exp ON exp.category_id = b.category_id AND exp.user_id = b.user_id
 	WHERE b.user_id = $1
-	GROUP BY b.id, c.name
+	GROUP BY b.id, b.user_id, b.category_id, c.name, b.name, b.amount, b.color, b.created_at
 	ORDER BY b.created_at DESC`
 
 func (r *BudgetRepository) ListByUser(ctx context.Context, userID int) ([]models.Budget, error) {

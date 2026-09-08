@@ -48,6 +48,7 @@ func main() {
 	// Services (business logic)
 	authService := service.NewAuthService(userRepo, tokens)
 	budgetService := service.NewBudgetService(budgetRepo, categoryRepo)
+	categoryService := service.NewCategoryService(categoryRepo)
 	transactionService := service.NewTransactionService(transactionRepo, categoryRepo, accountRepo, ledgerRepo, balanceRepo, pool)
 	summaryService := service.NewSummaryService(summaryRepo)
 	accountService := service.NewAccountsService(accountRepo)
@@ -55,6 +56,7 @@ func main() {
 	// Handlers (HTTP)
 	authHandler := handler.NewAuthHandler(authService)
 	budgetHandler := handler.NewBudgetHandler(budgetService)
+	categoryHandler := handler.NewCategoryHandler(categoryService)
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	summaryHandler := handler.NewSummaryHandler(summaryService)
 	accountHandler := handler.NewAccountsHandler(accountService)
@@ -81,6 +83,7 @@ func main() {
 		authHandler,
 		budgetHandler,
 		accountHandler,
+		categoryHandler,
 		transactionHandler,
 		summaryHandler,
 	)

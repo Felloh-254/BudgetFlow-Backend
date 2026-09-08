@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"budgetapp/internal/models"
 
@@ -18,16 +19,121 @@ func NewTransactionRepository(db *pgxpool.Pool) *TransactionRepository {
 	return &TransactionRepository{db: db}
 }
 
-// ListByUser returns all transactions for a user with pagination
-func (r *TransactionRepository) ListByUser(ctx context.Context, userID, limit, offset int) ([]models.Transaction, error) {
-	rows, err := r.db.Query(ctx,
-		`SELECT id, user_id, type, title, to_char(date, 'YYYY-MM-DD') as date, note, idempotency_key, created_at, updated_at
-		 FROM transactions_v2
-		 WHERE user_id = $1
-		 ORDER BY date DESC, created_at DESC
-		 LIMIT $2 OFFSET $3`,
-		userID, limit, offset,
+const enrichedTransactionSelect = `
+	SELECT 
+		t.id, 
+		t.user_id, 
+		t.type, 
+		t.title, 
+		to_char(t.date, 'YYYY-MM-DD') as date, 
+		t.note, 
+		t.idempotency_key, 
+		t.created_at, 
+		t.updated_at,
+		COALESCE(
+			MAX(CASE WHEN t.type = 'transfer' AND le.amount > 0 THEN le.amount
+			         WHEN t.type != 'transfer' THEN ABS(le.amount)
+			    END), 0
+		) as amount,
+		COALESCE(MAX(c.name), '') as category,
+		MAX(c.id) as category_id,
+		MAX(CASE WHEN t.type != 'transfer' THEN a.id END) as account_id,
+		COALESCE(MAX(CASE WHEN t.type != 'transfer' THEN a.name END), '') as account_name,
+		MAX(CASE WHEN t.type = 'transfer' AND le.amount < 0 THEN a.id END) as from_account_id,
+		COALESCE(MAX(CASE WHEN t.type = 'transfer' AND le.amount < 0 THEN a.name END), '') as from_account_name,
+		MAX(CASE WHEN t.type = 'transfer' AND le.amount > 0 THEN a.id END) as to_account_id,
+		COALESCE(MAX(CASE WHEN t.type = 'transfer' AND le.amount > 0 THEN a.name END), '') as to_account_name
+	FROM transactions_v2 t
+	LEFT JOIN ledger_entries le ON le.transaction_id = t.id
+	LEFT JOIN accounts a ON a.id = le.account_id
+	LEFT JOIN transaction_categories tc ON tc.transaction_id = t.id
+	LEFT JOIN categories c ON c.id = tc.category_id
+`
+
+func scanEnrichedTransaction(row interface{ Scan(dest ...any) error }) (*models.Transaction, error) {
+	var t models.Transaction
+	var idempKey sql.NullString
+	var catID, accID, fromAccID, toAccID sql.NullInt64
+	err := row.Scan(
+		&t.ID, &t.UserID, &t.Type, &t.Title, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt,
+		&t.Amount, &t.Category, &catID, &accID, &t.AccountName,
+		&fromAccID, &t.FromAccountName, &toAccID, &t.ToAccountName,
 	)
+	if err != nil {
+		return nil, err
+	}
+	if idempKey.Valid {
+		t.IdempotencyKey = &idempKey.String
+	}
+	if catID.Valid {
+		v := int(catID.Int64)
+		t.CategoryID = &v
+	}
+	if accID.Valid {
+		v := int(accID.Int64)
+		t.AccountID = &v
+	}
+	if fromAccID.Valid {
+		v := int(fromAccID.Int64)
+		t.FromAccountID = &v
+	}
+	if toAccID.Valid {
+		v := int(toAccID.Int64)
+		t.ToAccountID = &v
+	}
+	return &t, nil
+}
+
+// ListByUser returns all transactions for a user with filters and pagination
+func (r *TransactionRepository) ListByUser(ctx context.Context, userID int, filter models.TransactionFilter) ([]models.Transaction, error) {
+	query := enrichedTransactionSelect + ` WHERE t.user_id = $1`
+	args := []any{userID}
+
+	if filter.Type != "" {
+		args = append(args, filter.Type)
+		query += fmt.Sprintf(" AND t.type = $%d", len(args))
+	}
+	if filter.Month != "" {
+		args = append(args, filter.Month)
+		query += fmt.Sprintf(" AND to_char(t.date, 'YYYY-MM') = $%d", len(args))
+	}
+	if filter.StartDate != "" {
+		args = append(args, filter.StartDate)
+		query += fmt.Sprintf(" AND t.date >= $%d", len(args))
+	}
+	if filter.EndDate != "" {
+		args = append(args, filter.EndDate)
+		query += fmt.Sprintf(" AND t.date <= $%d", len(args))
+	}
+	if filter.CategoryID > 0 {
+		args = append(args, filter.CategoryID)
+		query += fmt.Sprintf(" AND tc.category_id = $%d", len(args))
+	}
+	if filter.AccountID > 0 {
+		args = append(args, filter.AccountID)
+		query += fmt.Sprintf(" AND le.account_id = $%d", len(args))
+	}
+
+	limit := filter.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	args = append(args, limit)
+	limitArgPos := len(args)
+	args = append(args, offset)
+	offsetArgPos := len(args)
+
+	query += fmt.Sprintf(`
+		GROUP BY t.id
+		ORDER BY t.date DESC, t.created_at DESC
+		LIMIT $%d OFFSET $%d`, limitArgPos, offsetArgPos)
+
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -35,15 +141,11 @@ func (r *TransactionRepository) ListByUser(ctx context.Context, userID, limit, o
 
 	txns := []models.Transaction{}
 	for rows.Next() {
-		var t models.Transaction
-		var idempKey sql.NullString
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Type, &t.Title, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		t, err := scanEnrichedTransaction(rows)
+		if err != nil {
 			return nil, err
 		}
-		if idempKey.Valid {
-			t.IdempotencyKey = &idempKey.String
-		}
-		txns = append(txns, t)
+		txns = append(txns, *t)
 	}
 	return txns, rows.Err()
 }
@@ -70,28 +172,20 @@ func (r *TransactionRepository) Create(ctx context.Context, userID int, txnType,
 	return &t, nil
 }
 
-// GetByID retrieves a single transaction by ID
+// GetByID retrieves a single transaction by ID with enriched details
 func (r *TransactionRepository) GetByID(ctx context.Context, transactionID, userID int) (*models.Transaction, error) {
-	var t models.Transaction
-	var idempKey sql.NullString
-	err := r.db.QueryRow(ctx,
-		`SELECT id, user_id, type, title, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at
-		 FROM transactions_v2
-		 WHERE id = $1 AND user_id = $2`,
-		transactionID, userID,
-	).Scan(&t.ID, &t.UserID, &t.Type, &t.Title, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt)
-
+	query := enrichedTransactionSelect + `
+		WHERE t.id = $1 AND t.user_id = $2
+		GROUP BY t.id`
+	row := r.db.QueryRow(ctx, query, transactionID, userID)
+	t, err := scanEnrichedTransaction(row)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
-
-	if idempKey.Valid {
-		t.IdempotencyKey = &idempKey.String
-	}
-	return &t, nil
+	return t, nil
 }
 
 // GetByIdempotencyKey retrieves a transaction by its idempotency key (for deduplication)
@@ -118,29 +212,21 @@ func (r *TransactionRepository) GetByIdempotencyKey(ctx context.Context, key str
 	return &t, nil
 }
 
-// Update updates transaction metadata (but not ledger entries)
+// Update updates transaction metadata (title, date, note)
 func (r *TransactionRepository) Update(ctx context.Context, transactionID, userID int, title, date, note string) (*models.Transaction, error) {
-	var t models.Transaction
-	var idempKey sql.NullString
-	err := r.db.QueryRow(ctx,
+	tag, err := r.db.Exec(ctx,
 		`UPDATE transactions_v2
 		 SET title = $1, date = $2, note = $3, updated_at = now()
-		 WHERE id = $4 AND user_id = $5
-		 RETURNING id, user_id, type, title, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at`,
+		 WHERE id = $4 AND user_id = $5`,
 		title, date, note, transactionID, userID,
-	).Scan(&t.ID, &t.UserID, &t.Type, &t.Title, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt)
-
+	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
-
-	if idempKey.Valid {
-		t.IdempotencyKey = &idempKey.String
+	if tag.RowsAffected() == 0 {
+		return nil, nil
 	}
-	return &t, nil
+	return r.GetByID(ctx, transactionID, userID)
 }
 
 // Delete removes a transaction and all associated ledger entries
@@ -201,4 +287,13 @@ func (r *TransactionRepository) RemoveCategory(ctx context.Context, transactionI
 		transactionID, categoryID,
 	)
 	return err
+}
+
+// SetCategory replaces all categories for a transaction with a single category
+func (r *TransactionRepository) SetCategory(ctx context.Context, transactionID, categoryID int) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM transaction_categories WHERE transaction_id = $1`, transactionID)
+	if err != nil {
+		return err
+	}
+	return r.AddCategory(ctx, transactionID, categoryID)
 }

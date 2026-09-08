@@ -33,7 +33,8 @@ func RegisterProtectedRoutes(
 	tokens *auth.TokenManager,
 	authHandler *handler.AuthHandler,
 	budgetHandler *handler.BudgetHandler,
-	AccountHandler *handler.AccountHandler,
+	accountHandler *handler.AccountHandler,
+	categoryHandler *handler.CategoryHandler,
 	transactionHandler *handler.TransactionHandler,
 	summaryHandler *handler.SummaryHandler,
 ) {
@@ -42,6 +43,9 @@ func RegisterProtectedRoutes(
 	// User routes
 	api.GET("/me", authHandler.Me)
 
+	// Category routes
+	api.GET("/categories", categoryHandler.List)
+
 	// Budget routes
 	api.GET("/budgets", budgetHandler.List)
 	api.POST("/budgets", budgetHandler.Create)
@@ -49,13 +53,16 @@ func RegisterProtectedRoutes(
 	api.DELETE("/budgets/:id", budgetHandler.Delete)
 
 	// Accounts APIs
-	api.POST("/accounts", AccountHandler.CreateAccount)
-	api.GET("/accounts", AccountHandler.ListAccounts)
-	api.PUT("/accounts/:id", AccountHandler.UpdateAccount)
-	api.DELETE("/accounts/:id", AccountHandler.DeleteAccount)
+	api.POST("/accounts", accountHandler.CreateAccount)
+	api.GET("/accounts", accountHandler.ListAccounts)
+	api.PUT("/accounts/:id", accountHandler.UpdateAccount)
+	api.DELETE("/accounts/:id", accountHandler.DeleteAccount)
 
 	// Transaction routes
 	api.GET("/transactions", transactionHandler.List)
+	api.GET("/transactions/:id", transactionHandler.GetByID)
+	api.POST("/transactions", transactionHandler.Create)
+	api.PUT("/transactions/:id", transactionHandler.Update)
 	api.POST("/transactions/income", transactionHandler.CreateIncome)
 	api.POST("/transactions/expense", transactionHandler.CreateExpense)
 	api.POST("/transactions/transfer", transactionHandler.CreateTransfer)

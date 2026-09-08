@@ -42,15 +42,69 @@ func NewTransactionService(
 	}
 }
 
-// List returns paginated transactions for a user
-func (s *TransactionService) List(ctx context.Context, userID, limit, offset int) ([]models.Transaction, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 100
+// List returns filtered and paginated transactions for a user
+func (s *TransactionService) List(ctx context.Context, userID int, filter models.TransactionFilter) ([]models.Transaction, error) {
+	if filter.Limit <= 0 || filter.Limit > 200 {
+		filter.Limit = 100
 	}
-	if offset < 0 {
-		offset = 0
+	if filter.Offset < 0 {
+		filter.Offset = 0
 	}
-	return s.transactions.ListByUser(ctx, userID, limit, offset)
+	return s.transactions.ListByUser(ctx, userID, filter)
+}
+
+// GetByID retrieves a single transaction with all details
+func (s *TransactionService) GetByID(ctx context.Context, transactionID, userID int) (*models.TransactionDetail, error) {
+	detail, err := s.enrichTransactionDetail(ctx, transactionID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if detail == nil {
+		return nil, apperr.ErrNotFound
+	}
+	return detail, nil
+}
+
+// Update updates transaction metadata (title, date, note) and optionally category
+func (s *TransactionService) Update(ctx context.Context, transactionID, userID int, in models.UpdateTransactionInput) (*models.TransactionDetail, error) {
+	txn, err := s.transactions.GetByID(ctx, transactionID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if txn == nil {
+		return nil, apperr.ErrNotFound
+	}
+
+	title := strings.TrimSpace(in.Title)
+	if title == "" {
+		title = txn.Title
+	}
+	date := strings.TrimSpace(in.Date)
+	if date == "" {
+		date = txn.Date
+	}
+	note := in.Note
+	if note == "" && in.Title == "" && in.Date == "" && in.Category == "" {
+		return s.enrichTransactionDetail(ctx, transactionID, userID)
+	}
+
+	_, err = s.transactions.Update(ctx, transactionID, userID, title, date, note)
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(in.Category) != "" && txn.Type != "transfer" {
+		catType := txn.Type
+		cat, err := s.categories.FindOrCreate(ctx, userID, strings.TrimSpace(in.Category), catType)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.transactions.SetCategory(ctx, transactionID, cat.ID); err != nil {
+			return nil, err
+		}
+	}
+
+	return s.enrichTransactionDetail(ctx, transactionID, userID)
 }
 
 // CreateIncome creates an income transaction (money enters an account)
@@ -387,9 +441,12 @@ func (s *TransactionService) Delete(ctx context.Context, transactionID, userID i
 		newBalance := currentBalance - entry.Amount
 		result, err := tx.Exec(ctx,
 			`UPDATE account_balances
-			 SET balance = $1, version = version + 1, updated_at = now()
+			 SET balance = $1,
+			     last_updated_txn = CASE WHEN last_updated_txn = $4 THEN NULL ELSE last_updated_txn END,
+			     version = version + 1,
+			     updated_at = now()
 			 WHERE account_id = $2 AND version = $3`,
-			newBalance, entry.AccountID, version,
+			newBalance, entry.AccountID, version, transactionID,
 		)
 		if err != nil {
 			return err
