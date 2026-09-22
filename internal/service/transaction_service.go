@@ -111,7 +111,7 @@ func (s *TransactionService) Update(ctx context.Context, transactionID, userID i
 // - amount is positive
 // - creates 1 ledger entry (debit to account)
 // - associates category
-func (s *TransactionService) CreateIncome(ctx context.Context, userID int, in models.TransactionInput) (*models.TransactionDetail, error) {
+func (s *TransactionService) CreateIncome(ctx context.Context, userID int, in models.TransactionInput, idempotencyKey string) (*models.TransactionDetail, error) {
 	if err := s.validateTransactionInput(in, "income"); err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (s *TransactionService) CreateIncome(ctx context.Context, userID int, in mo
 		EntryType string
 	}{
 		{AccountID: in.AccountID, Amount: in.Amount, EntryType: "debit"},
-	}, []int{cat.ID}, in.IdempotencyKey)
+	}, []int{cat.ID}, idempotencyKey)
 
 	return detail, err
 }
@@ -154,7 +154,7 @@ func (s *TransactionService) CreateIncome(ctx context.Context, userID int, in mo
 // - amount is positive (stored as-is, but represents money leaving)
 // - creates 1 ledger entry (credit from account)
 // - associates category
-func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in models.TransactionInput) (*models.TransactionDetail, error) {
+func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in models.TransactionInput, idempotencyKey string) (*models.TransactionDetail, error) {
 	if err := s.validateTransactionInput(in, "expense"); err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in m
 		EntryType string
 	}{
 		{AccountID: in.AccountID, Amount: -in.Amount, EntryType: "credit"},
-	}, []int{cat.ID}, in.IdempotencyKey)
+	}, []int{cat.ID}, idempotencyKey)
 
 	return detail, err
 }
@@ -197,7 +197,7 @@ func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in m
 // CreateTransfer creates a transfer transaction (money moves between accounts)
 // - creates 2 ledger entries (credit from source, debit to destination)
 // - no category
-func (s *TransactionService) CreateTransfer(ctx context.Context, userID int, in models.TransferInput) (*models.TransactionDetail, error) {
+func (s *TransactionService) CreateTransfer(ctx context.Context, userID int, in models.TransferInput, idempotencyKey string) (*models.TransactionDetail, error) {
 	if err := s.validateTransferInput(in); err != nil {
 		return nil, err
 	}
@@ -232,7 +232,7 @@ func (s *TransactionService) CreateTransfer(ctx context.Context, userID int, in 
 	}{
 		{AccountID: in.FromAccountID, Amount: -in.Amount, EntryType: "credit"},
 		{AccountID: in.ToAccountID, Amount: in.Amount, EntryType: "debit"},
-	}, []int{}, in.IdempotencyKey)
+	}, []int{}, idempotencyKey)
 
 	return detail, err
 }
@@ -249,7 +249,7 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 		EntryType string
 	},
 	categoryIDs []int,
-	idempotencyKey *string,
+	idempotencyKey string,
 ) (*models.TransactionDetail, error) {
 	// Acquire a connection for the transaction
 	conn, err := s.db.Acquire(ctx)
@@ -266,12 +266,13 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 	defer tx.Rollback(ctx)
 
 	// Check idempotency if key provided
-	if idempotencyKey != nil {
+	if idempotencyKey != "" {
 		var existingID int
+		var existingUserID int
 		err := tx.QueryRow(ctx,
-			`SELECT id FROM transactions_v2 WHERE idempotency_key = $1 LIMIT 1`,
-			*idempotencyKey,
-		).Scan(&existingID)
+			`SELECT id, user_id FROM transactions_v2 WHERE idempotency_key = $1 AND user_id = $2 LIMIT 1`,
+			idempotencyKey, userID,
+		).Scan(&existingID, &existingUserID)
 		if err == nil {
 			// Transaction already exists, return it
 			return s.enrichTransactionDetail(ctx, existingID, userID)
@@ -284,11 +285,18 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 	// Create the transaction event
 	var createdTxn models.Transaction
 	var idempKey sql.NullString
+
+	// Convert empty string to NULL for database
+	var idempotencyKeyParam interface{} = nil
+	if idempotencyKey != "" {
+		idempotencyKeyParam = idempotencyKey
+	}
+
 	err = tx.QueryRow(ctx,
 		`INSERT INTO transactions_v2 (user_id, type, title, date, note, idempotency_key)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING id, user_id, type, title, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at`,
-		userID, txn.Type, txn.Title, txn.Date, txn.Note, idempotencyKey,
+		userID, txn.Type, txn.Title, txn.Date, txn.Note, idempotencyKeyParam,
 	).Scan(&createdTxn.ID, &createdTxn.UserID, &createdTxn.Type, &createdTxn.Title, &createdTxn.Date, &createdTxn.Note, &idempKey, &createdTxn.CreatedAt, &createdTxn.UpdatedAt)
 	if err != nil {
 		return nil, err

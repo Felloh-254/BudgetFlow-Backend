@@ -60,28 +60,60 @@ func (h *TransactionHandler) GetByID(c echo.Context) error {
 // Create handles the generic POST /api/transactions endpoint
 func (h *TransactionHandler) Create(c echo.Context) error {
 	var in models.TransactionInput
+
 	if err := c.Bind(&in); err != nil {
-		c.Logger().Errorf("transaction create bind failed: user_id=%d error=%v", currentUserID(c), err)
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
+		c.Logger().Errorf(
+			"transaction create bind failed: user_id=%d error=%v",
+			currentUserID(c),
+			err,
+		)
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "invalid request body",
+		})
+	}
+
+	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "Idempotency-Key header is required",
+		})
 	}
 
 	switch strings.ToLower(in.Type) {
 	case "income":
 		in.Type = "income"
-		detail, err := h.transactions.CreateIncome(c.Request().Context(), currentUserID(c), in)
+
+		detail, err := h.transactions.CreateIncome(
+			c.Request().Context(),
+			currentUserID(c),
+			in,
+			idempotencyKey,
+		)
 		if err != nil {
 			return respondError(c, err)
 		}
+
 		return c.JSON(http.StatusCreated, detail)
+
 	case "expense":
 		in.Type = "expense"
-		detail, err := h.transactions.CreateExpense(c.Request().Context(), currentUserID(c), in)
+
+		detail, err := h.transactions.CreateExpense(
+			c.Request().Context(),
+			currentUserID(c),
+			in,
+			idempotencyKey,
+		)
 		if err != nil {
 			return respondError(c, err)
 		}
+
 		return c.JSON(http.StatusCreated, detail)
+
 	default:
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "type must be 'income' or 'expense'"})
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "type must be 'income' or 'expense'",
+		})
 	}
 }
 
@@ -112,9 +144,17 @@ func (h *TransactionHandler) CreateIncome(c echo.Context) error {
 		c.Logger().Errorf("income create bind failed: user_id=%d error=%v", currentUserID(c), err)
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
+
+	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "Idempotency-Key header is required",
+		})
+	}
+
 	in.Type = "income"
 
-	detail, err := h.transactions.CreateIncome(c.Request().Context(), currentUserID(c), in)
+	detail, err := h.transactions.CreateIncome(c.Request().Context(), currentUserID(c), in, idempotencyKey)
 	if err != nil {
 		return respondError(c, err)
 	}
@@ -129,9 +169,17 @@ func (h *TransactionHandler) CreateExpense(c echo.Context) error {
 		c.Logger().Errorf("expense create bind failed: user_id=%d error=%v", currentUserID(c), err)
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
+
+	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "Idempotency-Key header is required",
+		})
+	}
+
 	in.Type = "expense"
 
-	detail, err := h.transactions.CreateExpense(c.Request().Context(), currentUserID(c), in)
+	detail, err := h.transactions.CreateExpense(c.Request().Context(), currentUserID(c), in, idempotencyKey)
 	if err != nil {
 		return respondError(c, err)
 	}
@@ -147,7 +195,14 @@ func (h *TransactionHandler) CreateTransfer(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
 
-	detail, err := h.transactions.CreateTransfer(c.Request().Context(), currentUserID(c), in)
+	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "Idempotency-Key header is required",
+		})
+	}
+
+	detail, err := h.transactions.CreateTransfer(c.Request().Context(), currentUserID(c), in, idempotencyKey)
 	if err != nil {
 		return respondError(c, err)
 	}

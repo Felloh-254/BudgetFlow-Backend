@@ -63,24 +63,28 @@ type TransactionDetail struct {
 }
 
 // TransactionInput for creating income/expense
+// The IdempotencyKey is NOT expected in the JSON body, it comes from the header
 type TransactionInput struct {
-	Title          string  `json:"title"`
-	Amount         float64 `json:"amount"`
-	Type           string  `json:"type"` // "income" | "expense"
-	Category       string  `json:"category"`
-	AccountID      int     `json:"account_id"`
-	Date           string  `json:"date"`
-	Note           string  `json:"note"`
-	IdempotencyKey *string `json:"idempotency_key,omitempty"`
+	Title     string  `json:"title"`
+	Amount    float64 `json:"amount"`
+	Type      string  `json:"type"` // "income" | "expense"
+	Category  string  `json:"category"`
+	AccountID int     `json:"account_id"`
+	Date      string  `json:"date"`
+	Note      string  `json:"note"`
+	// IdempotencyKey is set by the handler from the header, not from JSON
+	IdempotencyKey string `json:"-"`
 }
 
 // TransferInput for creating transfers between accounts
+// The IdempotencyKey is NOT expected in the JSON body, it comes from the header
 type TransferInput struct {
-	Title          string  `json:"title"`
-	Amount         float64 `json:"amount"`
-	FromAccountID  int     `json:"from_account_id"`
-	ToAccountID    int     `json:"to_account_id"`
-	Date           string  `json:"date"`
-	Note           string  `json:"note"`
-	IdempotencyKey *string `json:"idempotency_key,omitempty"`
+	Title         string  `json:"title"`
+	Amount        float64 `json:"amount"`
+	FromAccountID int     `json:"from_account_id"`
+	ToAccountID   int     `json:"to_account_id"`
+	Date          string  `json:"date"`
+	Note          string  `json:"note"`
+	// IdempotencyKey is set by the handler from the header, not from JSON
+	IdempotencyKey string `json:"-"`
 }
