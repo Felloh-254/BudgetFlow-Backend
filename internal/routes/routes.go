@@ -90,6 +90,7 @@ func RegisterMiddleware(e *echo.Echo) {
 		AllowHeaders: []string{
 			echo.HeaderContentType,
 			echo.HeaderAuthorization,
+			"Idempotency-Key",
 		},
 		AllowCredentials: true,
 	}))

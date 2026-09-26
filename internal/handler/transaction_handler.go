@@ -59,6 +59,10 @@ func (h *TransactionHandler) GetByID(c echo.Context) error {
 
 // Create handles the generic POST /api/transactions endpoint
 func (h *TransactionHandler) Create(c echo.Context) error {
+	reqID := c.Response().Header().Get(echo.HeaderXRequestID)
+	c.Logger().Infof("[TXN-TRACE] Create (generic) HIT: req_id=%s user_id=%d remote_addr=%s idempotency_key=%s",
+		reqID, currentUserID(c), c.Request().RemoteAddr, c.Request().Header.Get("Idempotency-Key"))
+
 	var in models.TransactionInput
 
 	if err := c.Bind(&in); err != nil {
@@ -139,6 +143,10 @@ func (h *TransactionHandler) Update(c echo.Context) error {
 
 // CreateIncome creates an income transaction
 func (h *TransactionHandler) CreateIncome(c echo.Context) error {
+	reqID := c.Response().Header().Get(echo.HeaderXRequestID)
+	c.Logger().Infof("[TXN-TRACE] CreateIncome HIT: req_id=%s user_id=%d remote_addr=%s idempotency_key=%s",
+		reqID, currentUserID(c), c.Request().RemoteAddr, c.Request().Header.Get("Idempotency-Key"))
+
 	var in models.TransactionInput
 	if err := c.Bind(&in); err != nil {
 		c.Logger().Errorf("income create bind failed: user_id=%d error=%v", currentUserID(c), err)
@@ -154,16 +162,26 @@ func (h *TransactionHandler) CreateIncome(c echo.Context) error {
 
 	in.Type = "income"
 
+	c.Logger().Infof("[TXN-TRACE] CreateIncome calling service: req_id=%s user_id=%d idempotency_key=%s amount=%.2f account_id=%d title=%q",
+		reqID, currentUserID(c), idempotencyKey, in.Amount, in.AccountID, in.Title)
+
 	detail, err := h.transactions.CreateIncome(c.Request().Context(), currentUserID(c), in, idempotencyKey)
 	if err != nil {
+		c.Logger().Errorf("[TXN-TRACE] CreateIncome service error: req_id=%s user_id=%d idempotency_key=%s error=%v",
+			reqID, currentUserID(c), idempotencyKey, err)
 		return respondError(c, err)
 	}
-	c.Logger().Infof("income created: user_id=%d transaction_id=%d amount=%.2f", currentUserID(c), detail.Transaction.ID, detail.Entries[0].Amount)
+	c.Logger().Infof("[TXN-TRACE] CreateIncome DONE: req_id=%s user_id=%d transaction_id=%d idempotency_key=%s amount=%.2f entries=%d",
+		reqID, currentUserID(c), detail.Transaction.ID, idempotencyKey, detail.Entries[0].Amount, len(detail.Entries))
 	return c.JSON(http.StatusCreated, detail)
 }
 
 // CreateExpense creates an expense transaction
 func (h *TransactionHandler) CreateExpense(c echo.Context) error {
+	reqID := c.Response().Header().Get(echo.HeaderXRequestID)
+	c.Logger().Infof("[TXN-TRACE] CreateExpense HIT: req_id=%s user_id=%d remote_addr=%s idempotency_key=%s",
+		reqID, currentUserID(c), c.Request().RemoteAddr, c.Request().Header.Get("Idempotency-Key"))
+
 	var in models.TransactionInput
 	if err := c.Bind(&in); err != nil {
 		c.Logger().Errorf("expense create bind failed: user_id=%d error=%v", currentUserID(c), err)
@@ -179,11 +197,17 @@ func (h *TransactionHandler) CreateExpense(c echo.Context) error {
 
 	in.Type = "expense"
 
+	c.Logger().Infof("[TXN-TRACE] CreateExpense calling service: req_id=%s user_id=%d idempotency_key=%s amount=%.2f account_id=%d title=%q",
+		reqID, currentUserID(c), idempotencyKey, in.Amount, in.AccountID, in.Title)
+
 	detail, err := h.transactions.CreateExpense(c.Request().Context(), currentUserID(c), in, idempotencyKey)
 	if err != nil {
+		c.Logger().Errorf("[TXN-TRACE] CreateExpense service error: req_id=%s user_id=%d idempotency_key=%s error=%v",
+			reqID, currentUserID(c), idempotencyKey, err)
 		return respondError(c, err)
 	}
-	c.Logger().Infof("expense created: user_id=%d transaction_id=%d amount=%.2f", currentUserID(c), detail.Transaction.ID, -detail.Entries[0].Amount)
+	c.Logger().Infof("[TXN-TRACE] CreateExpense DONE: req_id=%s user_id=%d transaction_id=%d idempotency_key=%s amount=%.2f entries=%d",
+		reqID, currentUserID(c), detail.Transaction.ID, idempotencyKey, -detail.Entries[0].Amount, len(detail.Entries))
 	return c.JSON(http.StatusCreated, detail)
 }
 

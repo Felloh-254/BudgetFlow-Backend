@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -155,6 +156,9 @@ func (s *TransactionService) CreateIncome(ctx context.Context, userID int, in mo
 // - creates 1 ledger entry (credit from account)
 // - associates category
 func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in models.TransactionInput, idempotencyKey string) (*models.TransactionDetail, error) {
+	log.Printf("[TXN-TRACE] service.CreateExpense ENTER: user_id=%d idempotency_key=%s amount=%.2f account_id=%d title=%q",
+		userID, idempotencyKey, in.Amount, in.AccountID, in.Title)
+
 	if err := s.validateTransactionInput(in, "expense"); err != nil {
 		return nil, err
 	}
@@ -191,6 +195,11 @@ func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in m
 		{AccountID: in.AccountID, Amount: -in.Amount, EntryType: "credit"},
 	}, []int{cat.ID}, idempotencyKey)
 
+	if err != nil {
+		log.Printf("[TXN-TRACE] service.CreateExpense EXIT ERROR: user_id=%d idempotency_key=%s error=%v", userID, idempotencyKey, err)
+	} else {
+		log.Printf("[TXN-TRACE] service.CreateExpense EXIT OK: user_id=%d idempotency_key=%s transaction_id=%d", userID, idempotencyKey, detail.Transaction.ID)
+	}
 	return detail, err
 }
 
@@ -251,6 +260,9 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 	categoryIDs []int,
 	idempotencyKey string,
 ) (*models.TransactionDetail, error) {
+	log.Printf("[TXN-TRACE] createTransactionWithLedgerEntries ENTER: user_id=%d type=%s idempotency_key=%s num_entries=%d",
+		userID, txn.Type, idempotencyKey, len(entries))
+
 	// Acquire a connection for the transaction
 	conn, err := s.db.Acquire(ctx)
 	if err != nil {
@@ -265,21 +277,30 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 	}
 	defer tx.Rollback(ctx)
 
-	// Check idempotency if key provided
+	// Fast-path idempotency check. This is NOT sufficient on its own to prevent
+	// duplicates under concurrent requests (two requests can both pass this SELECT
+	// before either commits) - the real protection is the unique constraint on
+	// (user_id, idempotency_key) combined with ON CONFLICT DO NOTHING on the INSERT
+	// below. This early check just avoids doing unnecessary work on obvious retries
+	// (e.g. the client re-sending after seeing a slow response for a txn that already
+	// committed in an earlier request).
 	if idempotencyKey != "" {
 		var existingID int
-		var existingUserID int
 		err := tx.QueryRow(ctx,
-			`SELECT id, user_id FROM transactions_v2 WHERE idempotency_key = $1 AND user_id = $2 LIMIT 1`,
+			`SELECT id FROM transactions_v2 WHERE idempotency_key = $1 AND user_id = $2 LIMIT 1`,
 			idempotencyKey, userID,
-		).Scan(&existingID, &existingUserID)
+		).Scan(&existingID)
 		if err == nil {
 			// Transaction already exists, return it
+			log.Printf("[TXN-TRACE] idempotency fast-path HIT: user_id=%d idempotency_key=%s existing_transaction_id=%d — returning existing, NOT inserting",
+				userID, idempotencyKey, existingID)
 			return s.enrichTransactionDetail(ctx, existingID, userID)
 		}
 		if err != pgx.ErrNoRows {
 			return nil, err
 		}
+		log.Printf("[TXN-TRACE] idempotency fast-path MISS: user_id=%d idempotency_key=%s — no existing row found, proceeding to insert",
+			userID, idempotencyKey)
 	}
 
 	// Create the transaction event
@@ -292,12 +313,40 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 		idempotencyKeyParam = idempotencyKey
 	}
 
+	// ON CONFLICT DO NOTHING relies on a unique index on (user_id, idempotency_key)
+	// WHERE idempotency_key IS NOT NULL (see migration: add_transactions_idempotency_unique_index.sql).
+	// This is what actually closes the race: if two requests with the same key reach
+	// this INSERT concurrently, the database serializes them - the loser's INSERT
+	// affects zero rows instead of creating a duplicate transaction/ledger entries.
 	err = tx.QueryRow(ctx,
 		`INSERT INTO transactions_v2 (user_id, type, title, date, note, idempotency_key)
 		 VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
 		 RETURNING id, user_id, type, title, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at`,
 		userID, txn.Type, txn.Title, txn.Date, txn.Note, idempotencyKeyParam,
 	).Scan(&createdTxn.ID, &createdTxn.UserID, &createdTxn.Type, &createdTxn.Title, &createdTxn.Date, &createdTxn.Note, &idempKey, &createdTxn.CreatedAt, &createdTxn.UpdatedAt)
+
+	if err == pgx.ErrNoRows {
+		log.Printf("[TXN-TRACE] INSERT lost ON CONFLICT race: user_id=%d idempotency_key=%s — another request already committed this key, will fetch and return their row",
+			userID, idempotencyKey)
+		// We lost the race: another concurrent request with the same idempotency key
+		// committed first. Roll back our (empty) transaction and return the winner's
+		// transaction instead of erroring or silently creating a duplicate.
+		if idempotencyKey == "" {
+			// Should be unreachable (ON CONFLICT target requires a non-null key),
+			// but guard against it rather than looping forever on a real failure.
+			return nil, errors.New("transaction insert returned no rows unexpectedly")
+		}
+		var winnerID int
+		lookupErr := s.db.QueryRow(ctx,
+			`SELECT id FROM transactions_v2 WHERE idempotency_key = $1 AND user_id = $2`,
+			idempotencyKey, userID,
+		).Scan(&winnerID)
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		return s.enrichTransactionDetail(ctx, winnerID, userID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -306,8 +355,11 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 		createdTxn.IdempotencyKey = &idempKey.String
 	}
 
+	log.Printf("[TXN-TRACE] INSERT won: user_id=%d idempotency_key=%s new_transaction_id=%d — will now write %d ledger entries",
+		userID, idempotencyKey, createdTxn.ID, len(entries))
+
 	// Create ledger entries and update balances
-	for _, e := range entries {
+	for i, e := range entries {
 		// Insert ledger entry
 		_, err := tx.Exec(ctx,
 			`INSERT INTO ledger_entries (transaction_id, account_id, amount, entry_type)
@@ -317,6 +369,8 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 		if err != nil {
 			return nil, err
 		}
+		log.Printf("[TXN-TRACE] ledger entry %d/%d inserted: transaction_id=%d account_id=%d amount=%.2f entry_type=%s",
+			i+1, len(entries), createdTxn.ID, e.AccountID, e.Amount, e.EntryType)
 
 		// Get current balance
 		var currentBalance float64
@@ -331,6 +385,8 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 
 		// Update balance
 		newBalance := currentBalance + e.Amount
+		log.Printf("[TXN-TRACE] balance update: transaction_id=%d account_id=%d current_balance=%.2f delta=%.2f new_balance=%.2f current_version=%d",
+			createdTxn.ID, e.AccountID, currentBalance, e.Amount, newBalance, version)
 		result, err := tx.Exec(ctx,
 			`UPDATE account_balances
 			 SET balance = $1, last_updated_txn = $2, version = version + 1, updated_at = now()
@@ -341,6 +397,8 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 			return nil, err
 		}
 		if result.RowsAffected() == 0 {
+			log.Printf("[TXN-TRACE] balance update CONFLICT: transaction_id=%d account_id=%d expected_version=%d — someone else updated it concurrently",
+				createdTxn.ID, e.AccountID, version)
 			return nil, errors.New("concurrent balance update detected, please retry")
 		}
 	}
@@ -360,8 +418,11 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 
 	// Commit transaction
 	if err = tx.Commit(ctx); err != nil {
+		log.Printf("[TXN-TRACE] COMMIT FAILED: user_id=%d idempotency_key=%s transaction_id=%d error=%v",
+			userID, idempotencyKey, createdTxn.ID, err)
 		return nil, err
 	}
+	log.Printf("[TXN-TRACE] COMMIT OK: user_id=%d idempotency_key=%s transaction_id=%d", userID, idempotencyKey, createdTxn.ID)
 
 	// Return enriched transaction detail
 	return s.enrichTransactionDetail(ctx, createdTxn.ID, userID)
