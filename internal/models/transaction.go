@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"log"
+	"time"
+)
 
 // Transaction represents the financial event itself (income, expense, transfer)
 type Transaction struct {
@@ -87,4 +90,8 @@ type TransferInput struct {
 	Note          string  `json:"note"`
 	// IdempotencyKey is set by the handler from the header, not from JSON
 	IdempotencyKey string `json:"-"`
+}
+
+func init() {
+	log.Println("[models.transaction] Transaction models loaded")
 }

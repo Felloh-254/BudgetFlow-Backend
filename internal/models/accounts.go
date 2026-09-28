@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"log"
+	"time"
+)
 
 type Account struct {
 	ID            int       `json:"id"`
@@ -30,4 +33,8 @@ type AccountBalance struct {
 	LastUpdatedTxnID *int      `json:"last_updated_txn_id,omitempty"`
 	Version          int       `json:"version"` // for optimistic locking
 	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+func init() {
+	log.Println("[models.accounts] Account models loaded")
 }

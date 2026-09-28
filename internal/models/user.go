@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"log"
+	"time"
+)
 
 type User struct {
 	ID           int       `json:"id"`
@@ -21,5 +24,10 @@ type PublicUser struct {
 }
 
 func (u *User) Public() PublicUser {
+	log.Printf("[models.user] Public: converting user_id=%d email=%q to PublicUser", u.ID, u.Email)
 	return PublicUser{ID: u.ID, Email: u.Email, Name: u.Name, CreatedAt: u.CreatedAt}
+}
+
+func init() {
+	log.Println("[models.user] User models loaded")
 }

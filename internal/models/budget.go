@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"log"
+	"time"
+)
 
 type Budget struct {
 	ID         int       `json:"id"`
@@ -22,4 +25,8 @@ type BudgetInput struct {
 	Amount   float64 `json:"amount"`
 	Category string  `json:"category"`
 	Color    string  `json:"color"`
+}
+
+func init() {
+	log.Println("[models.budget] Budget models loaded")
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -28,17 +29,18 @@ type ReconciliationService struct {
 }
 
 func NewReconciliationService(db *pgxpool.Pool) *ReconciliationService {
+	log.Println("[repo.reconciliation] NewReconciliationService: created")
 	return &ReconciliationService{db: db}
 }
 
 // ReconcileAccount verifies and optionally fixes a single account's balance
-// Returns true if the balance was already consistent or successfully fixed
 func (s *ReconciliationService) ReconcileAccount(ctx context.Context, accountID int, fix bool) (*ReconciliationResult, error) {
+	log.Printf("[repo.reconciliation] ReconcileAccount: account_id=%d fix=%v", accountID, fix)
+
 	result := &ReconciliationResult{
 		AccountID: accountID,
 	}
 
-	// Get ledger balance (sum of all ledger entries)
 	var ledgerBal sql.NullFloat64
 	var txnCount int
 	var lastTxnID sql.NullInt64
@@ -50,6 +52,7 @@ func (s *ReconciliationService) ReconcileAccount(ctx context.Context, accountID 
 		accountID,
 	).Scan(&ledgerBal, &txnCount, &lastTxnID)
 	if err != nil {
+		log.Printf("[repo.reconciliation] ReconcileAccount: ledger calc failed account_id=%d error=%v", accountID, err)
 		result.ErrorMessage = fmt.Sprintf("failed to calculate ledger balance: %v", err)
 		return result, nil
 	}
@@ -63,7 +66,6 @@ func (s *ReconciliationService) ReconcileAccount(ctx context.Context, accountID 
 		result.LastTransactionID = &[]int{int(lastTxnID.Int64)}[0]
 	}
 
-	// Get stored balance from account_balances
 	var storedBal sql.NullFloat64
 	var version int
 
@@ -74,9 +76,11 @@ func (s *ReconciliationService) ReconcileAccount(ctx context.Context, accountID 
 
 	if err != nil {
 		if err == sql.ErrNoRows {
+			log.Printf("[repo.reconciliation] ReconcileAccount: balance record not found account_id=%d", accountID)
 			result.ErrorMessage = "account_balances record not found"
 			return result, nil
 		}
+		log.Printf("[repo.reconciliation] ReconcileAccount: stored balance fetch failed account_id=%d error=%v", accountID, err)
 		result.ErrorMessage = fmt.Sprintf("failed to fetch stored balance: %v", err)
 		return result, nil
 	}
@@ -85,24 +89,28 @@ func (s *ReconciliationService) ReconcileAccount(ctx context.Context, accountID 
 		result.StoredBalance = storedBal.Float64
 	}
 
-	// Check consistency
 	discrepancy := result.LedgerBalance - result.StoredBalance
 	result.Discrepancy = discrepancy
 	result.IsConsistent = discrepancy == 0
+
+	log.Printf("[repo.reconciliation] ReconcileAccount: account_id=%d ledger=%.2f stored=%.2f discrepancy=%.2f consistent=%v",
+		accountID, result.LedgerBalance, result.StoredBalance, result.Discrepancy, result.IsConsistent)
 
 	if result.IsConsistent {
 		return result, nil
 	}
 
-	// If requested, fix the balance
 	if fix {
+		log.Printf("[repo.reconciliation] ReconcileAccount: fixing account_id=%d new_balance=%.2f", accountID, result.LedgerBalance)
 		fixErr := s.fixAccountBalance(ctx, accountID, result.LedgerBalance, result.LastTransactionID, version)
 		if fixErr != nil {
+			log.Printf("[repo.reconciliation] ReconcileAccount: fix FAILED account_id=%d error=%v", accountID, fixErr)
 			result.ErrorMessage = fmt.Sprintf("failed to fix balance: %v", fixErr)
 			result.Fixed = false
 			return result, nil
 		}
 		result.Fixed = true
+		log.Printf("[repo.reconciliation] ReconcileAccount: fixed account_id=%d", accountID)
 	}
 
 	return result, nil
@@ -110,11 +118,14 @@ func (s *ReconciliationService) ReconcileAccount(ctx context.Context, accountID 
 
 // ReconcileAllAccounts reconciles all accounts for a user
 func (s *ReconciliationService) ReconcileAllAccounts(ctx context.Context, userID int, fix bool) ([]ReconciliationResult, error) {
+	log.Printf("[repo.reconciliation] ReconcileAllAccounts: user_id=%d fix=%v", userID, fix)
+
 	rows, err := s.db.Query(ctx,
 		`SELECT id FROM accounts WHERE user_id = $1`,
 		userID,
 	)
 	if err != nil {
+		log.Printf("[repo.reconciliation] ReconcileAllAccounts: query failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -133,11 +144,15 @@ func (s *ReconciliationService) ReconcileAllAccounts(ctx context.Context, userID
 		results = append(results, *result)
 	}
 
+	log.Printf("[repo.reconciliation] ReconcileAllAccounts: OK user_id=%d accounts_reconciled=%d", userID, len(results))
 	return results, rows.Err()
 }
 
 // fixAccountBalance updates the stored balance to match the ledger balance
 func (s *ReconciliationService) fixAccountBalance(ctx context.Context, accountID int, correctBalance float64, lastTxnID *int, currentVersion int) error {
+	log.Printf("[repo.reconciliation] fixAccountBalance: account_id=%d correct_balance=%.2f version=%d",
+		accountID, correctBalance, currentVersion)
+
 	result, err := s.db.Exec(ctx,
 		`UPDATE account_balances
 		 SET balance = $1, last_updated_txn = $2, version = version + 1, updated_at = now()
@@ -146,17 +161,20 @@ func (s *ReconciliationService) fixAccountBalance(ctx context.Context, accountID
 	)
 
 	if err != nil {
+		log.Printf("[repo.reconciliation] fixAccountBalance: FAILED account_id=%d error=%v", accountID, err)
 		return err
 	}
 
 	if result.RowsAffected() == 0 {
+		log.Printf("[repo.reconciliation] fixAccountBalance: CONFLICT account_id=%d version=%d (concurrent update)", accountID, currentVersion)
 		return errors.New("concurrent update detected - version mismatch, please retry")
 	}
 
+	log.Printf("[repo.reconciliation] fixAccountBalance: OK account_id=%d new_balance=%.2f", accountID, correctBalance)
 	return nil
 }
 
-// GetAccountHistory returns the ledger history for an account with transaction details
+// AccountHistoryEntry represents a ledger history entry
 type AccountHistoryEntry struct {
 	TransactionID   int
 	AccountID       int
@@ -169,6 +187,8 @@ type AccountHistoryEntry struct {
 }
 
 func (s *ReconciliationService) GetAccountHistory(ctx context.Context, accountID int, limit, offset int) ([]AccountHistoryEntry, error) {
+	log.Printf("[repo.reconciliation] GetAccountHistory: account_id=%d limit=%d offset=%d", accountID, limit, offset)
+
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
@@ -187,6 +207,7 @@ func (s *ReconciliationService) GetAccountHistory(ctx context.Context, accountID
 		accountID, limit, offset,
 	)
 	if err != nil {
+		log.Printf("[repo.reconciliation] GetAccountHistory: query failed account_id=%d error=%v", accountID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -201,5 +222,6 @@ func (s *ReconciliationService) GetAccountHistory(ctx context.Context, accountID
 		entries = append(entries, entry)
 	}
 
+	log.Printf("[repo.reconciliation] GetAccountHistory: OK account_id=%d count=%d", accountID, len(entries))
 	return entries, rows.Err()
 }

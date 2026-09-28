@@ -3,7 +3,10 @@
 // errors.Is / errors.As instead of string matching.
 package apperr
 
-import "errors"
+import (
+	"errors"
+	"log"
+)
 
 var (
 	ErrNotFound           = errors.New("resource not found")
@@ -31,5 +34,6 @@ func (e *ValidationError) Unwrap() error { return ErrValidation }
 
 // Validation is a convenience constructor for a ValidationError.
 func Validation(msg string) error {
+	log.Printf("[apperr] Validation error created: %s", msg)
 	return &ValidationError{Message: msg}
 }

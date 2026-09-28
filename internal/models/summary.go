@@ -1,5 +1,7 @@
 package models
 
+import "log"
+
 type Summary struct {
 	TotalIncome   float64            `json:"total_income"`
 	TotalExpenses float64            `json:"total_expenses"`
@@ -20,4 +22,8 @@ type MonthlyDataPoint struct {
 	Month   string  `json:"month"`
 	Income  float64 `json:"income"`
 	Expense float64 `json:"expense"`
+}
+
+func init() {
+	log.Println("[models.summary] Summary models loaded")
 }

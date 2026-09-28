@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"log"
 
 	"budgetapp/internal/models"
 
@@ -15,11 +16,14 @@ type AccountBalanceRepository struct {
 }
 
 func NewAccountBalanceRepository(db *pgxpool.Pool) *AccountBalanceRepository {
+	log.Println("[repo.account_balance] NewAccountBalanceRepository: created")
 	return &AccountBalanceRepository{db: db}
 }
 
 // GetBalance retrieves the current balance for an account
 func (r *AccountBalanceRepository) GetBalance(ctx context.Context, accountID int) (*models.AccountBalance, error) {
+	log.Printf("[repo.account_balance] GetBalance: account_id=%d", accountID)
+
 	var bal models.AccountBalance
 	var lastTxnID sql.NullInt64
 
@@ -32,19 +36,24 @@ func (r *AccountBalanceRepository) GetBalance(ctx context.Context, accountID int
 
 	if err != nil {
 		if err == pgx.ErrNoRows {
+			log.Printf("[repo.account_balance] GetBalance: not found account_id=%d", accountID)
 			return nil, nil
 		}
+		log.Printf("[repo.account_balance] GetBalance: FAILED account_id=%d error=%v", accountID, err)
 		return nil, err
 	}
 
 	if lastTxnID.Valid {
 		bal.LastUpdatedTxnID = &[]int{int(lastTxnID.Int64)}[0]
 	}
+	log.Printf("[repo.account_balance] GetBalance: OK account_id=%d balance=%.2f version=%d", accountID, bal.Balance, bal.Version)
 	return &bal, nil
 }
 
 // CreateBalance initializes a balance record for a new account
 func (r *AccountBalanceRepository) CreateBalance(ctx context.Context, accountID int, initialBalance float64) (*models.AccountBalance, error) {
+	log.Printf("[repo.account_balance] CreateBalance: account_id=%d initial_balance=%.2f", accountID, initialBalance)
+
 	var bal models.AccountBalance
 	err := r.db.QueryRow(ctx,
 		`INSERT INTO account_balances (account_id, balance, version)
@@ -53,12 +62,21 @@ func (r *AccountBalanceRepository) CreateBalance(ctx context.Context, accountID 
 		accountID, initialBalance, 1,
 	).Scan(&bal.ID, &bal.AccountID, &bal.Balance, &bal.LastUpdatedTxnID, &bal.Version, &bal.UpdatedAt)
 
-	return &bal, err
+	if err != nil {
+		log.Printf("[repo.account_balance] CreateBalance: FAILED account_id=%d error=%v", accountID, err)
+		return nil, err
+	}
+
+	log.Printf("[repo.account_balance] CreateBalance: OK account_id=%d balance=%.2f version=%d", accountID, bal.Balance, bal.Version)
+	return &bal, nil
 }
 
 // UpdateBalance atomically updates the balance and version
 // Returns true if successful, false if version mismatch (concurrent update)
 func (r *AccountBalanceRepository) UpdateBalance(ctx context.Context, accountID int, newBalance float64, lastTxnID int, currentVersion int) (bool, error) {
+	log.Printf("[repo.account_balance] UpdateBalance: account_id=%d new_balance=%.2f last_txn_id=%d current_version=%d",
+		accountID, newBalance, lastTxnID, currentVersion)
+
 	result, err := r.db.Exec(ctx,
 		`UPDATE account_balances
 		 SET balance = $2, last_updated_txn = $3, version = version + 1, updated_at = now()
@@ -67,23 +85,30 @@ func (r *AccountBalanceRepository) UpdateBalance(ctx context.Context, accountID 
 	)
 
 	if err != nil {
+		log.Printf("[repo.account_balance] UpdateBalance: FAILED account_id=%d error=%v", accountID, err)
 		return false, err
 	}
 
-	// If no rows were affected, version mismatch occurred
-	return result.RowsAffected() > 0, nil
+	success := result.RowsAffected() > 0
+	if !success {
+		log.Printf("[repo.account_balance] UpdateBalance: CONFLICT account_id=%d expected_version=%d (version mismatch)", accountID, currentVersion)
+	} else {
+		log.Printf("[repo.account_balance] UpdateBalance: OK account_id=%d new_balance=%.2f", accountID, newBalance)
+	}
+
+	return success, nil
 }
 
 // RecalculateBalance recalculates balance from ledger entries (for reconciliation)
-// This should be used sparingly, only for sync/reconciliation operations
 func (r *AccountBalanceRepository) RecalculateBalance(ctx context.Context, accountID int, ledgerRepo *LedgerRepository) (*models.AccountBalance, error) {
-	// Get the sum from ledger entries
+	log.Printf("[repo.account_balance] RecalculateBalance: account_id=%d", accountID)
+
 	balance, err := ledgerRepo.GetBalance(ctx, accountID)
 	if err != nil {
+		log.Printf("[repo.account_balance] RecalculateBalance: ledger GetBalance failed account_id=%d error=%v", accountID, err)
 		return nil, err
 	}
 
-	// Get the last transaction
 	var lastTxnID sql.NullInt64
 	err = r.db.QueryRow(ctx,
 		`SELECT COALESCE(MAX(transaction_id), NULL)
@@ -93,10 +118,10 @@ func (r *AccountBalanceRepository) RecalculateBalance(ctx context.Context, accou
 	).Scan(&lastTxnID)
 
 	if err != nil {
+		log.Printf("[repo.account_balance] RecalculateBalance: max txn query failed account_id=%d error=%v", accountID, err)
 		return nil, err
 	}
 
-	// Update the balance
 	var bal models.AccountBalance
 	var txnID *int
 	if lastTxnID.Valid {
@@ -111,17 +136,34 @@ func (r *AccountBalanceRepository) RecalculateBalance(ctx context.Context, accou
 		accountID, balance, txnID,
 	).Scan(&bal.ID, &bal.AccountID, &bal.Balance, &bal.LastUpdatedTxnID, &bal.Version, &bal.UpdatedAt)
 
-	return &bal, err
+	if err != nil {
+		log.Printf("[repo.account_balance] RecalculateBalance: FAILED account_id=%d error=%v", accountID, err)
+		return nil, err
+	}
+
+	log.Printf("[repo.account_balance] RecalculateBalance: OK account_id=%d recalculated_balance=%.2f version=%d",
+		accountID, bal.Balance, bal.Version)
+	return &bal, nil
 }
 
 // DeleteBalance removes balance record (when account is deleted)
 func (r *AccountBalanceRepository) DeleteBalance(ctx context.Context, accountID int) error {
+	log.Printf("[repo.account_balance] DeleteBalance: account_id=%d", accountID)
+
 	_, err := r.db.Exec(ctx, `DELETE FROM account_balances WHERE account_id = $1`, accountID)
-	return err
+	if err != nil {
+		log.Printf("[repo.account_balance] DeleteBalance: FAILED account_id=%d error=%v", accountID, err)
+		return err
+	}
+
+	log.Printf("[repo.account_balance] DeleteBalance: OK account_id=%d", accountID)
+	return nil
 }
 
 // GetAccountsWithBalance retrieves balance for multiple accounts
 func (r *AccountBalanceRepository) GetAccountsWithBalance(ctx context.Context, accountIDs []int) (map[int]*models.AccountBalance, error) {
+	log.Printf("[repo.account_balance] GetAccountsWithBalance: count=%d account_ids=%v", len(accountIDs), accountIDs)
+
 	if len(accountIDs) == 0 {
 		return make(map[int]*models.AccountBalance), nil
 	}
@@ -133,6 +175,7 @@ func (r *AccountBalanceRepository) GetAccountsWithBalance(ctx context.Context, a
 		accountIDs,
 	)
 	if err != nil {
+		log.Printf("[repo.account_balance] GetAccountsWithBalance: FAILED error=%v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -142,6 +185,7 @@ func (r *AccountBalanceRepository) GetAccountsWithBalance(ctx context.Context, a
 		var bal models.AccountBalance
 		var lastTxnID sql.NullInt64
 		if err := rows.Scan(&bal.ID, &bal.AccountID, &bal.Balance, &lastTxnID, &bal.Version, &bal.UpdatedAt); err != nil {
+			log.Printf("[repo.account_balance] GetAccountsWithBalance: scan failed error=%v", err)
 			return nil, err
 		}
 		if lastTxnID.Valid {
@@ -149,5 +193,7 @@ func (r *AccountBalanceRepository) GetAccountsWithBalance(ctx context.Context, a
 		}
 		result[bal.AccountID] = &bal
 	}
+
+	log.Printf("[repo.account_balance] GetAccountsWithBalance: OK found=%d", len(result))
 	return result, rows.Err()
 }

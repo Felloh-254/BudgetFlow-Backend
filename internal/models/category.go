@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"log"
+	"time"
+)
 
 // Category normalizes what used to be a free-text field on Budget and
 // Transaction. UserID is nil for global/default categories shared by all
@@ -12,4 +15,8 @@ type Category struct {
 	Type      string    `json:"type"` // "expense" or "income"
 	Color     string    `json:"color"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+func init() {
+	log.Println("[models.category] Category model loaded")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 
 	"budgetapp/internal/models"
 
@@ -16,6 +17,7 @@ type TransactionRepository struct {
 }
 
 func NewTransactionRepository(db *pgxpool.Pool) *TransactionRepository {
+	log.Println("[repo.transaction] NewTransactionRepository: created")
 	return &TransactionRepository{db: db}
 }
 
@@ -86,6 +88,9 @@ func scanEnrichedTransaction(row interface{ Scan(dest ...any) error }) (*models.
 
 // ListByUser returns all transactions for a user with filters and pagination
 func (r *TransactionRepository) ListByUser(ctx context.Context, userID int, filter models.TransactionFilter) ([]models.Transaction, error) {
+	log.Printf("[repo.transaction] ListByUser: user_id=%d limit=%d offset=%d type=%q month=%q category_id=%d account_id=%d",
+		userID, filter.Limit, filter.Offset, filter.Type, filter.Month, filter.CategoryID, filter.AccountID)
+
 	query := enrichedTransactionSelect + ` WHERE t.user_id = $1`
 	args := []any{userID}
 
@@ -135,6 +140,7 @@ func (r *TransactionRepository) ListByUser(ctx context.Context, userID int, filt
 
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
+		log.Printf("[repo.transaction] ListByUser: query failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -143,16 +149,20 @@ func (r *TransactionRepository) ListByUser(ctx context.Context, userID int, filt
 	for rows.Next() {
 		t, err := scanEnrichedTransaction(rows)
 		if err != nil {
+			log.Printf("[repo.transaction] ListByUser: scan failed user_id=%d error=%v", userID, err)
 			return nil, err
 		}
 		txns = append(txns, *t)
 	}
+
+	log.Printf("[repo.transaction] ListByUser: OK user_id=%d count=%d", userID, len(txns))
 	return txns, rows.Err()
 }
 
 // Create creates a transaction event (without ledger entries)
-// Ledger entries must be created separately via LedgerRepository
 func (r *TransactionRepository) Create(ctx context.Context, userID int, txnType, title, date, note string, idempotencyKey *string) (*models.Transaction, error) {
+	log.Printf("[repo.transaction] Create: user_id=%d type=%s title=%q date=%q", userID, txnType, title, date)
+
 	var t models.Transaction
 	var idempKey sql.NullString
 	err := r.db.QueryRow(ctx,
@@ -163,17 +173,22 @@ func (r *TransactionRepository) Create(ctx context.Context, userID int, txnType,
 	).Scan(&t.ID, &t.UserID, &t.Type, &t.Title, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt)
 
 	if err != nil {
+		log.Printf("[repo.transaction] Create: FAILED user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 
 	if idempKey.Valid {
 		t.IdempotencyKey = &idempKey.String
 	}
+
+	log.Printf("[repo.transaction] Create: OK transaction_id=%d user_id=%d type=%s", t.ID, t.UserID, t.Type)
 	return &t, nil
 }
 
 // GetByID retrieves a single transaction by ID with enriched details
 func (r *TransactionRepository) GetByID(ctx context.Context, transactionID, userID int) (*models.Transaction, error) {
+	log.Printf("[repo.transaction] GetByID: transaction_id=%d user_id=%d", transactionID, userID)
+
 	query := enrichedTransactionSelect + `
 		WHERE t.id = $1 AND t.user_id = $2
 		GROUP BY t.id`
@@ -181,15 +196,21 @@ func (r *TransactionRepository) GetByID(ctx context.Context, transactionID, user
 	t, err := scanEnrichedTransaction(row)
 	if err != nil {
 		if err == pgx.ErrNoRows {
+			log.Printf("[repo.transaction] GetByID: not found transaction_id=%d user_id=%d", transactionID, userID)
 			return nil, nil
 		}
+		log.Printf("[repo.transaction] GetByID: FAILED transaction_id=%d user_id=%d error=%v", transactionID, userID, err)
 		return nil, err
 	}
+
+	log.Printf("[repo.transaction] GetByID: OK transaction_id=%d type=%s amount=%.2f", t.ID, t.Type, t.Amount)
 	return t, nil
 }
 
-// GetByIdempotencyKey retrieves a transaction by its idempotency key (for deduplication)
+// GetByIdempotencyKey retrieves a transaction by its idempotency key
 func (r *TransactionRepository) GetByIdempotencyKey(ctx context.Context, key string) (*models.Transaction, error) {
+	log.Printf("[repo.transaction] GetByIdempotencyKey: key=%q", key)
+
 	var t models.Transaction
 	var idempKey sql.NullString
 	err := r.db.QueryRow(ctx,
@@ -201,19 +222,25 @@ func (r *TransactionRepository) GetByIdempotencyKey(ctx context.Context, key str
 
 	if err != nil {
 		if err == pgx.ErrNoRows {
+			log.Printf("[repo.transaction] GetByIdempotencyKey: not found key=%q", key)
 			return nil, nil
 		}
+		log.Printf("[repo.transaction] GetByIdempotencyKey: FAILED key=%q error=%v", key, err)
 		return nil, err
 	}
 
 	if idempKey.Valid {
 		t.IdempotencyKey = &idempKey.String
 	}
+
+	log.Printf("[repo.transaction] GetByIdempotencyKey: OK transaction_id=%d key=%q", t.ID, key)
 	return &t, nil
 }
 
 // Update updates transaction metadata (title, date, note)
 func (r *TransactionRepository) Update(ctx context.Context, transactionID, userID int, title, date, note string) (*models.Transaction, error) {
+	log.Printf("[repo.transaction] Update: transaction_id=%d user_id=%d title=%q date=%q", transactionID, userID, title, date)
+
 	tag, err := r.db.Exec(ctx,
 		`UPDATE transactions_v2
 		 SET title = $1, date = $2, note = $3, updated_at = now()
@@ -221,38 +248,58 @@ func (r *TransactionRepository) Update(ctx context.Context, transactionID, userI
 		title, date, note, transactionID, userID,
 	)
 	if err != nil {
+		log.Printf("[repo.transaction] Update: FAILED transaction_id=%d error=%v", transactionID, err)
 		return nil, err
 	}
 	if tag.RowsAffected() == 0 {
+		log.Printf("[repo.transaction] Update: not found transaction_id=%d user_id=%d", transactionID, userID)
 		return nil, nil
 	}
+
+	log.Printf("[repo.transaction] Update: OK transaction_id=%d", transactionID)
 	return r.GetByID(ctx, transactionID, userID)
 }
 
 // Delete removes a transaction and all associated ledger entries
 func (r *TransactionRepository) Delete(ctx context.Context, transactionID, userID int) (bool, error) {
+	log.Printf("[repo.transaction] Delete: transaction_id=%d user_id=%d", transactionID, userID)
+
 	tag, err := r.db.Exec(ctx,
 		`DELETE FROM transactions_v2 WHERE id = $1 AND user_id = $2`,
 		transactionID, userID)
 	if err != nil {
+		log.Printf("[repo.transaction] Delete: FAILED transaction_id=%d error=%v", transactionID, err)
 		return false, err
 	}
-	return tag.RowsAffected() > 0, nil
+
+	deleted := tag.RowsAffected() > 0
+	log.Printf("[repo.transaction] Delete: transaction_id=%d user_id=%d deleted=%v", transactionID, userID, deleted)
+	return deleted, nil
 }
 
 // AddCategory associates a category with a transaction
 func (r *TransactionRepository) AddCategory(ctx context.Context, transactionID, categoryID int) error {
+	log.Printf("[repo.transaction] AddCategory: transaction_id=%d category_id=%d", transactionID, categoryID)
+
 	_, err := r.db.Exec(ctx,
 		`INSERT INTO transaction_categories (transaction_id, category_id)
 		 VALUES ($1, $2)
 		 ON CONFLICT (transaction_id, category_id) DO NOTHING`,
 		transactionID, categoryID,
 	)
-	return err
+	if err != nil {
+		log.Printf("[repo.transaction] AddCategory: FAILED transaction_id=%d category_id=%d error=%v", transactionID, categoryID, err)
+		return err
+	}
+
+	log.Printf("[repo.transaction] AddCategory: OK transaction_id=%d category_id=%d", transactionID, categoryID)
+	return nil
 }
 
 // GetCategories retrieves all categories for a transaction
 func (r *TransactionRepository) GetCategories(ctx context.Context, transactionID int) ([]models.Category, error) {
+	log.Printf("[repo.transaction] GetCategories: transaction_id=%d", transactionID)
+
 	rows, err := r.db.Query(ctx,
 		`SELECT c.id, c.user_id, c.name, c.type, c.color, c.created_at
 		 FROM categories c
@@ -261,6 +308,7 @@ func (r *TransactionRepository) GetCategories(ctx context.Context, transactionID
 		transactionID,
 	)
 	if err != nil {
+		log.Printf("[repo.transaction] GetCategories: query failed transaction_id=%d error=%v", transactionID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -277,23 +325,44 @@ func (r *TransactionRepository) GetCategories(ctx context.Context, transactionID
 		}
 		categories = append(categories, cat)
 	}
+
+	log.Printf("[repo.transaction] GetCategories: OK transaction_id=%d count=%d", transactionID, len(categories))
 	return categories, rows.Err()
 }
 
 // RemoveCategory unlinks a category from a transaction
 func (r *TransactionRepository) RemoveCategory(ctx context.Context, transactionID, categoryID int) error {
+	log.Printf("[repo.transaction] RemoveCategory: transaction_id=%d category_id=%d", transactionID, categoryID)
+
 	_, err := r.db.Exec(ctx,
 		`DELETE FROM transaction_categories WHERE transaction_id = $1 AND category_id = $2`,
 		transactionID, categoryID,
 	)
-	return err
+	if err != nil {
+		log.Printf("[repo.transaction] RemoveCategory: FAILED transaction_id=%d error=%v", transactionID, err)
+		return err
+	}
+
+	log.Printf("[repo.transaction] RemoveCategory: OK transaction_id=%d category_id=%d", transactionID, categoryID)
+	return nil
 }
 
 // SetCategory replaces all categories for a transaction with a single category
 func (r *TransactionRepository) SetCategory(ctx context.Context, transactionID, categoryID int) error {
+	log.Printf("[repo.transaction] SetCategory: transaction_id=%d category_id=%d", transactionID, categoryID)
+
 	_, err := r.db.Exec(ctx, `DELETE FROM transaction_categories WHERE transaction_id = $1`, transactionID)
 	if err != nil {
+		log.Printf("[repo.transaction] SetCategory: delete failed transaction_id=%d error=%v", transactionID, err)
 		return err
 	}
-	return r.AddCategory(ctx, transactionID, categoryID)
+
+	err = r.AddCategory(ctx, transactionID, categoryID)
+	if err != nil {
+		log.Printf("[repo.transaction] SetCategory: add failed transaction_id=%d error=%v", transactionID, err)
+		return err
+	}
+
+	log.Printf("[repo.transaction] SetCategory: OK transaction_id=%d category_id=%d", transactionID, categoryID)
+	return nil
 }

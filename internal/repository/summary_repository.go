@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"log"
 
 	"budgetapp/internal/models"
 
@@ -13,10 +14,13 @@ type SummaryRepository struct {
 }
 
 func NewSummaryRepository(db *pgxpool.Pool) *SummaryRepository {
+	log.Println("[repo.summary] NewSummaryRepository: created")
 	return &SummaryRepository{db: db}
 }
 
 func (r *SummaryRepository) Totals(ctx context.Context, userID int) (income, expense float64, err error) {
+	log.Printf("[repo.summary] Totals: user_id=%d", userID)
+
 	err = r.db.QueryRow(ctx,
 		`SELECT
 			COALESCE(SUM(income), 0),
@@ -37,10 +41,19 @@ func (r *SummaryRepository) Totals(ctx context.Context, userID int) (income, exp
 		 ) combined`,
 		userID,
 	).Scan(&income, &expense)
+
+	if err != nil {
+		log.Printf("[repo.summary] Totals: FAILED user_id=%d error=%v", userID, err)
+		return 0, 0, err
+	}
+
+	log.Printf("[repo.summary] Totals: OK user_id=%d income=%.2f expense=%.2f", userID, income, expense)
 	return income, expense, err
 }
 
 func (r *SummaryRepository) BudgetStats(ctx context.Context, userID int) ([]models.BudgetStat, error) {
+	log.Printf("[repo.summary] BudgetStats: user_id=%d", userID)
+
 	rows, err := r.db.Query(ctx,
 		`SELECT b.name, b.amount,
 			COALESCE(SUM(exp.amount), 0) AS spent,
@@ -64,6 +77,7 @@ func (r *SummaryRepository) BudgetStats(ctx context.Context, userID int) ([]mode
 		userID,
 	)
 	if err != nil {
+		log.Printf("[repo.summary] BudgetStats: query failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -72,14 +86,19 @@ func (r *SummaryRepository) BudgetStats(ctx context.Context, userID int) ([]mode
 	for rows.Next() {
 		var s models.BudgetStat
 		if err := rows.Scan(&s.Name, &s.Amount, &s.Spent, &s.Color, &s.Category); err != nil {
+			log.Printf("[repo.summary] BudgetStats: scan failed user_id=%d error=%v", userID, err)
 			return nil, err
 		}
 		stats = append(stats, s)
 	}
+
+	log.Printf("[repo.summary] BudgetStats: OK user_id=%d count=%d", userID, len(stats))
 	return stats, rows.Err()
 }
 
 func (r *SummaryRepository) MonthlyData(ctx context.Context, userID, months int) ([]models.MonthlyDataPoint, error) {
+	log.Printf("[repo.summary] MonthlyData: user_id=%d months=%d", userID, months)
+
 	rows, err := r.db.Query(ctx,
 		`SELECT month,
 			COALESCE(SUM(income), 0) AS income,
@@ -104,6 +123,7 @@ func (r *SummaryRepository) MonthlyData(ctx context.Context, userID, months int)
 		userID, months,
 	)
 	if err != nil {
+		log.Printf("[repo.summary] MonthlyData: query failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -112,9 +132,12 @@ func (r *SummaryRepository) MonthlyData(ctx context.Context, userID, months int)
 	for rows.Next() {
 		var m models.MonthlyDataPoint
 		if err := rows.Scan(&m.Month, &m.Income, &m.Expense); err != nil {
+			log.Printf("[repo.summary] MonthlyData: scan failed user_id=%d error=%v", userID, err)
 			return nil, err
 		}
 		points = append(points, m)
 	}
+
+	log.Printf("[repo.summary] MonthlyData: OK user_id=%d count=%d", userID, len(points))
 	return points, rows.Err()
 }

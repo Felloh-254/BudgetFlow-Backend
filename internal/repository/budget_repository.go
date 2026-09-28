@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"log"
 
 	"budgetapp/internal/models"
 
@@ -13,6 +14,7 @@ type BudgetRepository struct {
 }
 
 func NewBudgetRepository(db *pgxpool.Pool) *BudgetRepository {
+	log.Println("[repo.budget] NewBudgetRepository: created")
 	return &BudgetRepository{db: db}
 }
 
@@ -37,8 +39,11 @@ const budgetSelectWithSpent = `
 	ORDER BY b.created_at DESC`
 
 func (r *BudgetRepository) ListByUser(ctx context.Context, userID int) ([]models.Budget, error) {
+	log.Printf("[repo.budget] ListByUser: user_id=%d", userID)
+
 	rows, err := r.db.Query(ctx, budgetSelectWithSpent, userID)
 	if err != nil {
+		log.Printf("[repo.budget] ListByUser: query failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -47,14 +52,20 @@ func (r *BudgetRepository) ListByUser(ctx context.Context, userID int) ([]models
 	for rows.Next() {
 		var b models.Budget
 		if err := rows.Scan(&b.ID, &b.UserID, &b.CategoryID, &b.Category, &b.Name, &b.Amount, &b.Color, &b.CreatedAt, &b.Spent); err != nil {
+			log.Printf("[repo.budget] ListByUser: scan failed user_id=%d error=%v", userID, err)
 			return nil, err
 		}
 		budgets = append(budgets, b)
 	}
+
+	log.Printf("[repo.budget] ListByUser: OK user_id=%d count=%d", userID, len(budgets))
 	return budgets, rows.Err()
 }
 
 func (r *BudgetRepository) Create(ctx context.Context, userID, categoryID int, name string, amount float64, color string) (*models.Budget, error) {
+	log.Printf("[repo.budget] Create: user_id=%d category_id=%d name=%q amount=%.2f color=%q",
+		userID, categoryID, name, amount, color)
+
 	var b models.Budget
 	err := r.db.QueryRow(ctx,
 		`INSERT INTO budgets (user_id, category_id, name, amount, color)
@@ -63,15 +74,20 @@ func (r *BudgetRepository) Create(ctx context.Context, userID, categoryID int, n
 		userID, categoryID, name, amount, color,
 	).Scan(&b.ID, &b.UserID, &b.CategoryID, &b.Name, &b.Amount, &b.Color, &b.CreatedAt)
 	if err != nil {
+		log.Printf("[repo.budget] Create: FAILED user_id=%d error=%v", userID, err)
 		return nil, err
 	}
+
+	log.Printf("[repo.budget] Create: OK budget_id=%d name=%q amount=%.2f", b.ID, b.Name, b.Amount)
 	return &b, nil
 }
 
 // Update returns pgx.ErrNoRows (unwrapped, caller maps it) if no budget
-// with that id+userID exists — ownership check and existence check in one
-// query instead of a separate SELECT-then-UPDATE round trip.
+// with that id+userID exists
 func (r *BudgetRepository) Update(ctx context.Context, id, userID, categoryID int, name string, amount float64, color string) (*models.Budget, error) {
+	log.Printf("[repo.budget] Update: budget_id=%d user_id=%d category_id=%d name=%q amount=%.2f",
+		id, userID, categoryID, name, amount)
+
 	var b models.Budget
 	err := r.db.QueryRow(ctx,
 		`UPDATE budgets SET category_id = $1, name = $2, amount = $3, color = $4
@@ -80,15 +96,24 @@ func (r *BudgetRepository) Update(ctx context.Context, id, userID, categoryID in
 		categoryID, name, amount, color, id, userID,
 	).Scan(&b.ID, &b.UserID, &b.CategoryID, &b.Name, &b.Amount, &b.Color, &b.CreatedAt)
 	if err != nil {
+		log.Printf("[repo.budget] Update: FAILED budget_id=%d user_id=%d error=%v", id, userID, err)
 		return nil, err
 	}
+
+	log.Printf("[repo.budget] Update: OK budget_id=%d name=%q", b.ID, b.Name)
 	return &b, nil
 }
 
 func (r *BudgetRepository) Delete(ctx context.Context, id, userID int) (bool, error) {
+	log.Printf("[repo.budget] Delete: budget_id=%d user_id=%d", id, userID)
+
 	tag, err := r.db.Exec(ctx, `DELETE FROM budgets WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
+		log.Printf("[repo.budget] Delete: FAILED budget_id=%d user_id=%d error=%v", id, userID, err)
 		return false, err
 	}
-	return tag.RowsAffected() > 0, nil
+
+	deleted := tag.RowsAffected() > 0
+	log.Printf("[repo.budget] Delete: budget_id=%d user_id=%d deleted=%v", id, userID, deleted)
+	return deleted, nil
 }
