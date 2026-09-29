@@ -68,7 +68,7 @@ func (r *AccountsRepository) CreateAccount(ctx context.Context, userID int, name
 
 // ListAccountsByUser retrieves all accounts with their current balance
 func (r *AccountsRepository) ListAccountsByUser(ctx context.Context, userID int) ([]models.Account, error) {
-	log.Printf("[repo.accounts] ListAccountsByUser: user_id=%d", userID)
+	log.Printf("[repo.accounts] ListAccountsByUser: ENTER user_id=%d", userID)
 
 	rows, err := r.db.Query(ctx,
 		`SELECT a.id, a.user_id, a.name, a.type, a.account_number, ab.balance, a.created_at, a.updated_at, a.currency
@@ -84,22 +84,54 @@ func (r *AccountsRepository) ListAccountsByUser(ctx context.Context, userID int)
 	}
 	defer rows.Close()
 
+	// Log the raw column descriptions so we can see types/order returned by the DB
+	fieldDescs := rows.FieldDescriptions()
+	cols := make([]string, 0, len(fieldDescs))
+	for _, fd := range fieldDescs {
+		cols = append(cols, string(fd.Name))
+	}
+	log.Printf("[repo.accounts] ListAccountsByUser: query OK user_id=%d columns=%v", userID, cols)
+
 	var accounts []models.Account
+	rowNum := 0
 	for rows.Next() {
+		rowNum++
 		var a models.Account
 		var balance sql.NullFloat64
+
 		if err := rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.AccountNumber, &balance, &a.CreatedAt, &a.UpdatedAt, &a.Currency); err != nil {
-			log.Printf("[repo.accounts] ListAccountsByUser: scan failed user_id=%d error=%v", userID, err)
+			log.Printf("[repo.accounts] ListAccountsByUser: scan failed user_id=%d row=%d error=%v", userID, rowNum, err)
 			return nil, err
 		}
+
+		// Log the RAW scanned values before any conversion
+		log.Printf("[repo.accounts] ListAccountsByUser: scanned row=%d account_id=%d user_id=%d name=%q type=%q account_number=%v currency=%q balance_valid=%v balance_raw=%v",
+			rowNum, a.ID, a.UserID, a.Name, a.Type, a.AccountNumber, a.Currency, balance.Valid, balance.Float64)
+
 		if balance.Valid {
 			a.Balance = balance.Float64
+		} else {
+			log.Printf("[repo.accounts] ListAccountsByUser: WARN balance is NULL row=%d account_id=%d — defaulting to 0", rowNum, a.ID)
 		}
+
+		// Log the value AFTER assignment (what will actually be returned)
+		log.Printf("[repo.accounts] ListAccountsByUser: assigned row=%d account_id=%d balance_assigned=%.2f", rowNum, a.ID, a.Balance)
+
 		accounts = append(accounts, a)
 	}
 
-	log.Printf("[repo.accounts] ListAccountsByUser: OK user_id=%d count=%d", userID, len(accounts))
-	return accounts, rows.Err()
+	if err := rows.Err(); err != nil {
+		log.Printf("[repo.accounts] ListAccountsByUser: rows iteration error user_id=%d error=%v", userID, err)
+		return nil, err
+	}
+
+	// Final summary — this is the exact data leaving the repo
+	for i, a := range accounts {
+		log.Printf("[repo.accounts] ListAccountsByUser: RESULT[%d] account_id=%d name=%q balance=%.2f currency=%q",
+			i, a.ID, a.Name, a.Balance, a.Currency)
+	}
+	log.Printf("[repo.accounts] ListAccountsByUser: EXIT OK user_id=%d count=%d", userID, len(accounts))
+	return accounts, nil
 }
 
 // GetAccountByID retrieves a single account by ID
