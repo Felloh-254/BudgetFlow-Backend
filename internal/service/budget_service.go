@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"strings"
+	"time"
 
 	"budgetapp/internal/apperr"
 	"budgetapp/internal/models"
@@ -23,22 +24,25 @@ func NewBudgetService(budgets *repository.BudgetRepository, categories *reposito
 	return &BudgetService{budgets: budgets, categories: categories}
 }
 
-func (s *BudgetService) List(ctx context.Context, userID int) ([]models.Budget, error) {
-	log.Printf("[service.budget] List: user_id=%d", userID)
+func (s *BudgetService) List(ctx context.Context, userID int, month string) ([]models.Budget, error) {
+	log.Printf("[service.budget] List: user_id=%d month=%q", userID, month)
 
-	budgets, err := s.budgets.ListByUser(ctx, userID)
+	budgets, err := s.budgets.ListByUser(ctx, userID, month)
 	if err != nil {
-		log.Printf("[service.budget] List: repo error user_id=%d error=%v", userID, err)
+		log.Printf("[service.budget] List: repo error user_id=%d month=%q error=%v", userID, month, err)
 		return nil, err
 	}
 
-	log.Printf("[service.budget] List: OK user_id=%d count=%d", userID, len(budgets))
+	log.Printf("[service.budget] List: OK user_id=%d month=%q count=%d", userID, month, len(budgets))
 	return budgets, nil
 }
 
 func (s *BudgetService) Create(ctx context.Context, userID int, in models.BudgetInput) (*models.Budget, error) {
-	log.Printf("[service.budget] Create: user_id=%d name=%q amount=%.2f category=%q",
-		userID, in.Name, in.Amount, in.Category)
+	if in.Month == "" {
+		in.Month = time.Now().Format("2006-01")
+	}
+	log.Printf("[service.budget] Create: user_id=%d name=%q amount=%.2f month=%q",
+		userID, in.Name, in.Amount, in.Month)
 
 	if err := validateBudgetInput(in); err != nil {
 		log.Printf("[service.budget] Create: validation failed user_id=%d error=%v", userID, err)
@@ -55,20 +59,23 @@ func (s *BudgetService) Create(ctx context.Context, userID int, in models.Budget
 		return nil, err
 	}
 
-	b, err := s.budgets.Create(ctx, userID, cat.ID, strings.TrimSpace(in.Name), in.Amount, in.Color)
+	b, err := s.budgets.Create(ctx, userID, cat.ID, strings.TrimSpace(in.Name), in.Amount, in.Color, in.Month)
 	if err != nil {
 		log.Printf("[service.budget] Create: repo error user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 	b.Category = cat.Name
 
-	log.Printf("[service.budget] Create: OK user_id=%d budget_id=%d name=%q", userID, b.ID, b.Name)
+	log.Printf("[service.budget] Create: OK user_id=%d budget_id=%d month=%q", userID, b.ID, b.Month)
 	return b, nil
 }
 
 func (s *BudgetService) Update(ctx context.Context, id, userID int, in models.BudgetInput) (*models.Budget, error) {
-	log.Printf("[service.budget] Update: budget_id=%d user_id=%d name=%q amount=%.2f",
-		id, userID, in.Name, in.Amount)
+	if in.Month == "" {
+		in.Month = time.Now().Format("2006-01")
+	}
+	log.Printf("[service.budget] Update: budget_id=%d user_id=%d name=%q amount=%.2f month=%q",
+		id, userID, in.Name, in.Amount, in.Month)
 
 	if err := validateBudgetInput(in); err != nil {
 		log.Printf("[service.budget] Update: validation failed budget_id=%d error=%v", id, err)
@@ -84,7 +91,8 @@ func (s *BudgetService) Update(ctx context.Context, id, userID int, in models.Bu
 		return nil, err
 	}
 
-	b, err := s.budgets.Update(ctx, id, userID, cat.ID, strings.TrimSpace(in.Name), in.Amount, in.Color)
+	b, err := s.budgets.Update(ctx, id, userID, cat.ID, strings.TrimSpace(in.Name),
+		in.Amount, in.Color, in.Month)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			log.Printf("[service.budget] Update: not found budget_id=%d user_id=%d", id, userID)
@@ -95,7 +103,7 @@ func (s *BudgetService) Update(ctx context.Context, id, userID int, in models.Bu
 	}
 	b.Category = cat.Name
 
-	log.Printf("[service.budget] Update: OK budget_id=%d name=%q", id, b.Name)
+	log.Printf("[service.budget] Update: OK budget_id=%d month=%q", id, b.Month)
 	return b, nil
 }
 
@@ -116,6 +124,27 @@ func (s *BudgetService) Delete(ctx context.Context, id, userID int) error {
 	return nil
 }
 
+func (s *BudgetService) CopyFromPreviousMonth(ctx context.Context, userID int, targetMonth string) (int, error) {
+	log.Printf("[service.budget] CopyFromPreviousMonth: user_id=%d target=%q", userID, targetMonth)
+
+	t, err := time.Parse("2006-01", targetMonth)
+	if err != nil {
+		log.Printf("[service.budget] CopyFromPreviousMonth: invalid month user_id=%d target=%q error=%v",
+			userID, targetMonth, err)
+		return 0, apperr.Validation("month must be in YYYY-MM format")
+	}
+	prevMonth := t.AddDate(0, -1, 0).Format("2006-01")
+
+	n, err := s.budgets.CopyBudgetsFromMonth(ctx, userID, prevMonth, targetMonth)
+	if err != nil {
+		log.Printf("[service.budget] CopyFromPreviousMonth: repo error user_id=%d error=%v", userID, err)
+		return 0, err
+	}
+	log.Printf("[service.budget] CopyFromPreviousMonth: OK user_id=%d copied=%d from=%q to=%q",
+		userID, n, prevMonth, targetMonth)
+	return n, nil
+}
+
 func validateBudgetInput(in models.BudgetInput) error {
 	if strings.TrimSpace(in.Name) == "" {
 		return apperr.Validation("budget name is required")
@@ -125,6 +154,9 @@ func validateBudgetInput(in models.BudgetInput) error {
 	}
 	if in.Amount <= 0 {
 		return apperr.Validation("amount must be greater than 0")
+	}
+	if in.Month != "" && len(in.Month) != 7 {
+		return apperr.Validation("month must be in YYYY-MM format")
 	}
 	return nil
 }

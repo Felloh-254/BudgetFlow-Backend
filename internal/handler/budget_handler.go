@@ -22,15 +22,16 @@ func NewBudgetHandler(budgets *service.BudgetService) *BudgetHandler {
 
 func (h *BudgetHandler) List(c echo.Context) error {
 	userID := currentUserID(c)
-	log.Printf("[handler.budget] List: user_id=%d", userID)
+	month := c.QueryParam("month")
+	log.Printf("[handler.budget] List: user_id=%d month=%q", userID, month)
 
-	budgets, err := h.budgets.List(c.Request().Context(), userID)
+	budgets, err := h.budgets.List(c.Request().Context(), userID, month)
 	if err != nil {
 		log.Printf("[handler.budget] List: service error user_id=%d error=%v", userID, err)
 		return respondError(c, err)
 	}
 
-	log.Printf("[handler.budget] List: OK user_id=%d count=%d", userID, len(budgets))
+	log.Printf("[handler.budget] List: OK user_id=%d month=%q count=%d", userID, month, len(budgets))
 	return c.JSON(http.StatusOK, budgets)
 }
 
@@ -44,8 +45,8 @@ func (h *BudgetHandler) Create(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
 
-	log.Printf("[handler.budget] Create: bound input user_id=%d name=%q amount=%.2f category=%q",
-		userID, in.Name, in.Amount, in.Category)
+	log.Printf("[handler.budget] Create: bound input user_id=%d name=%q amount=%.2f month=%q",
+		userID, in.Name, in.Amount, in.Month)
 
 	b, err := h.budgets.Create(c.Request().Context(), userID, in)
 	if err != nil {
@@ -53,7 +54,7 @@ func (h *BudgetHandler) Create(c echo.Context) error {
 		return respondError(c, err)
 	}
 
-	log.Printf("[handler.budget] Create: OK user_id=%d budget_id=%d name=%q", userID, b.ID, b.Name)
+	log.Printf("[handler.budget] Create: OK user_id=%d budget_id=%d month=%q", userID, b.ID, b.Month)
 	return c.JSON(http.StatusCreated, b)
 }
 
@@ -73,8 +74,8 @@ func (h *BudgetHandler) Update(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
 
-	log.Printf("[handler.budget] Update: bound input user_id=%d budget_id=%d name=%q amount=%.2f",
-		userID, id, in.Name, in.Amount)
+	log.Printf("[handler.budget] Update: bound input user_id=%d budget_id=%d name=%q amount=%.2f month=%q",
+		userID, id, in.Name, in.Amount, in.Month)
 
 	b, err := h.budgets.Update(c.Request().Context(), id, userID, in)
 	if err != nil {
@@ -103,4 +104,26 @@ func (h *BudgetHandler) Delete(c echo.Context) error {
 
 	log.Printf("[handler.budget] Delete: OK user_id=%d budget_id=%d", userID, id)
 	return c.JSON(http.StatusOK, echo.Map{"message": "deleted"})
+}
+
+func (h *BudgetHandler) CopyFromPreviousMonth(c echo.Context) error {
+	userID := currentUserID(c)
+
+	var body struct {
+		Month string `json:"month"`
+	}
+	if err := c.Bind(&body); err != nil {
+		log.Printf("[handler.budget] CopyFromPreviousMonth: bind failed user_id=%d error=%v", userID, err)
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
+	}
+	log.Printf("[handler.budget] CopyFromPreviousMonth: user_id=%d month=%q", userID, body.Month)
+
+	n, err := h.budgets.CopyFromPreviousMonth(c.Request().Context(), userID, body.Month)
+	if err != nil {
+		log.Printf("[handler.budget] CopyFromPreviousMonth: service error user_id=%d error=%v", userID, err)
+		return respondError(c, err)
+	}
+
+	log.Printf("[handler.budget] CopyFromPreviousMonth: OK user_id=%d copied=%d", userID, n)
+	return c.JSON(http.StatusOK, echo.Map{"copied": n, "month": body.Month})
 }

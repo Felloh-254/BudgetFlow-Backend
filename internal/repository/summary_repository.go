@@ -51,8 +51,8 @@ func (r *SummaryRepository) Totals(ctx context.Context, userID int) (income, exp
 	return income, expense, err
 }
 
-func (r *SummaryRepository) BudgetStats(ctx context.Context, userID int) ([]models.BudgetStat, error) {
-	log.Printf("[repo.summary] BudgetStats: user_id=%d", userID)
+func (r *SummaryRepository) BudgetStats(ctx context.Context, userID int, month string) ([]models.BudgetStat, error) {
+	log.Printf("[repo.summary] BudgetStats: user_id=%d month=%q", userID, month)
 
 	rows, err := r.db.Query(ctx,
 		`SELECT b.name, b.amount,
@@ -61,23 +61,29 @@ func (r *SummaryRepository) BudgetStats(ctx context.Context, userID int) ([]mode
 		 FROM budgets b
 		 JOIN categories c ON c.id = b.category_id
 		 LEFT JOIN (
-			SELECT tc.category_id, t.user_id, ABS(le.amount) AS amount
+			SELECT tc.category_id, t.user_id,
+			       to_char(t.date, 'YYYY-MM') AS txn_month,
+			       ABS(le.amount) AS amount
 			FROM transactions_v2 t
 			JOIN transaction_categories tc ON tc.transaction_id = t.id
 			JOIN ledger_entries le ON le.transaction_id = t.id AND le.amount < 0
 			WHERE t.type = 'expense'
 			UNION ALL
-			SELECT category_id, user_id, amount
+			SELECT category_id, user_id,
+			       to_char(date, 'YYYY-MM') AS txn_month,
+			       amount
 			FROM transactions
 			WHERE type = 'expense'
-		 ) exp ON exp.category_id = b.category_id AND exp.user_id = b.user_id
-		 WHERE b.user_id = $1
+		 ) exp ON exp.category_id = b.category_id
+		      AND exp.user_id = b.user_id
+		      AND exp.txn_month = b.month
+		 WHERE b.user_id = $1 AND b.month = $2
 		 GROUP BY b.id, b.name, b.amount, b.color, c.name
 		 ORDER BY b.created_at DESC`,
-		userID,
+		userID, month,
 	)
 	if err != nil {
-		log.Printf("[repo.summary] BudgetStats: query failed user_id=%d error=%v", userID, err)
+		log.Printf("[repo.summary] BudgetStats: query failed user_id=%d month=%q error=%v", userID, month, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -92,7 +98,7 @@ func (r *SummaryRepository) BudgetStats(ctx context.Context, userID int) ([]mode
 		stats = append(stats, s)
 	}
 
-	log.Printf("[repo.summary] BudgetStats: OK user_id=%d count=%d", userID, len(stats))
+	log.Printf("[repo.summary] BudgetStats: OK user_id=%d month=%q count=%d", userID, month, len(stats))
 	return stats, rows.Err()
 }
 

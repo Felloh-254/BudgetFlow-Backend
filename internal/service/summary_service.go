@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log"
+	"time"
 
 	"budgetapp/internal/models"
 	"budgetapp/internal/repository"
@@ -17,8 +18,11 @@ func NewSummaryService(summary *repository.SummaryRepository) *SummaryService {
 	return &SummaryService{summary: summary}
 }
 
-func (s *SummaryService) Get(ctx context.Context, userID int) (*models.Summary, error) {
-	log.Printf("[service.summary] Get: user_id=%d", userID)
+func (s *SummaryService) Get(ctx context.Context, userID int, month string) (*models.Summary, error) {
+	if month == "" {
+		month = time.Now().Format("2006-01")
+	}
+	log.Printf("[service.summary] Get: user_id=%d month=%q", userID, month)
 
 	income, expense, err := s.summary.Totals(ctx, userID)
 	if err != nil {
@@ -27,12 +31,12 @@ func (s *SummaryService) Get(ctx context.Context, userID int) (*models.Summary, 
 	}
 	log.Printf("[service.summary] Get: Totals OK user_id=%d income=%.2f expense=%.2f", userID, income, expense)
 
-	stats, err := s.summary.BudgetStats(ctx, userID)
+	stats, err := s.summary.BudgetStats(ctx, userID, month)
 	if err != nil {
 		log.Printf("[service.summary] Get: BudgetStats failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
-	log.Printf("[service.summary] Get: BudgetStats OK user_id=%d count=%d", userID, len(stats))
+	log.Printf("[service.summary] Get: BudgetStats OK user_id=%d month=%q count=%d", userID, month, len(stats))
 
 	monthly, err := s.summary.MonthlyData(ctx, userID, 6)
 	if err != nil {
@@ -49,6 +53,6 @@ func (s *SummaryService) Get(ctx context.Context, userID int) (*models.Summary, 
 		MonthlyData:   monthly,
 	}
 
-	log.Printf("[service.summary] Get: OK user_id=%d balance=%.2f", userID, summary.Balance)
+	log.Printf("[service.summary] Get: OK user_id=%d month=%q balance=%.2f", userID, month, summary.Balance)
 	return summary, nil
 }
