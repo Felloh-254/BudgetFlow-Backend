@@ -406,6 +406,11 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 			return nil, err
 		}
 
+		if e.Amount < 0 && currentBalance+e.Amount < 0 {
+			log.Print("[Service.transaction] Insufficient balance to complete the transaction")
+			return nil, errors.New("Insufficient funds")
+		}
+
 		newBalance := currentBalance + e.Amount
 		log.Printf("[service.transaction] balance update: transaction_id=%d account_id=%d current_balance=%.2f delta=%.2f new_balance=%.2f version=%d",
 			createdTxn.ID, e.AccountID, currentBalance, e.Amount, newBalance, version)
