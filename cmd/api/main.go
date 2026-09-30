@@ -44,6 +44,8 @@ func main() {
 	accountRepo := repository.NewAccountsRepository(pool)
 	ledgerRepo := repository.NewLedgerRepository(pool)
 	balanceRepo := repository.NewAccountBalanceRepository(pool)
+	goalRepo := repository.NewGoalRepository(pool)
+	recurringRepo := repository.NewRecurringRepository(pool)
 
 	// Services (business logic)
 	authService := service.NewAuthService(userRepo, tokens)
@@ -52,6 +54,8 @@ func main() {
 	transactionService := service.NewTransactionService(transactionRepo, categoryRepo, accountRepo, ledgerRepo, balanceRepo, pool)
 	summaryService := service.NewSummaryService(summaryRepo)
 	accountService := service.NewAccountsService(accountRepo)
+	goalService := service.NewGoalService(goalRepo)
+	recurringService := service.NewRecurringService(recurringRepo, categoryRepo, transactionService)
 
 	// Handlers (HTTP)
 	authHandler := handler.NewAuthHandler(authService)
@@ -60,6 +64,8 @@ func main() {
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	summaryHandler := handler.NewSummaryHandler(summaryService)
 	accountHandler := handler.NewAccountsHandler(accountService)
+	goalHandler := handler.NewGoalHandler(goalService)
+	recurringHandler := handler.NewRecurringHandler(recurringService)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -86,7 +92,28 @@ func main() {
 		categoryHandler,
 		transactionHandler,
 		summaryHandler,
+		goalHandler,
+		recurringHandler,
 	)
+
+	// In-process scheduler for recurring rules. Fires every hour and
+	// materializes any rules whose next_run_at <= today. Safe to run
+	// multiple replicas of the app — the recurring_rule_runs unique index
+	// (rule_id, ran_for_date) prevents double-firing.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			success, failed, err := recurringService.RunDue(context.Background())
+			if err != nil {
+				log.Printf("[main] recurring RunDue error: %v", err)
+				continue
+			}
+			if success > 0 || failed > 0 {
+				log.Printf("[main] recurring RunDue: success=%d failed=%d", success, failed)
+			}
+		}
+	}()
 
 	// Run the server in a goroutine so we can listen for shutdown signals
 	// and drain in-flight requests instead of killing connections abruptly.

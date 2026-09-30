@@ -15,7 +15,6 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
-// RegisterPublicRoutes registers all public (unauthenticated) API routes.
 func RegisterPublicRoutes(
 	e *echo.Echo,
 	authHandler *handler.AuthHandler,
@@ -30,7 +29,6 @@ func RegisterPublicRoutes(
 	log.Println("[routes] RegisterPublicRoutes: OK (4 routes)")
 }
 
-// RegisterProtectedRoutes registers all protected (authenticated) API routes.
 func RegisterProtectedRoutes(
 	e *echo.Echo,
 	tokens *auth.TokenManager,
@@ -40,6 +38,8 @@ func RegisterProtectedRoutes(
 	categoryHandler *handler.CategoryHandler,
 	transactionHandler *handler.TransactionHandler,
 	summaryHandler *handler.SummaryHandler,
+	goalHandler *handler.GoalHandler,
+	recurringHandler *handler.RecurringHandler,
 ) {
 	log.Println("[routes] RegisterProtectedRoutes: registering protected routes")
 
@@ -49,16 +49,20 @@ func RegisterProtectedRoutes(
 
 	api.GET("/categories", categoryHandler.List)
 
+	// ---- budgets (per-month via ?month=YYYY-MM) ----
 	api.GET("/budgets", budgetHandler.List)
 	api.POST("/budgets", budgetHandler.Create)
 	api.PUT("/budgets/:id", budgetHandler.Update)
 	api.DELETE("/budgets/:id", budgetHandler.Delete)
+	api.POST("/budgets/copy", budgetHandler.CopyFromPreviousMonth)
 
+	// ---- accounts ----
 	api.POST("/accounts", accountHandler.CreateAccount)
 	api.GET("/accounts", accountHandler.ListAccounts)
 	api.PUT("/accounts/:id", accountHandler.UpdateAccount)
 	api.DELETE("/accounts/:id", accountHandler.DeleteAccount)
 
+	// ---- transactions ----
 	api.GET("/transactions", transactionHandler.List)
 	api.GET("/transactions/:id", transactionHandler.GetByID)
 	api.POST("/transactions", transactionHandler.Create)
@@ -68,12 +72,28 @@ func RegisterProtectedRoutes(
 	api.POST("/transactions/transfer", transactionHandler.CreateTransfer)
 	api.DELETE("/transactions/:id", transactionHandler.Delete)
 
+	// ---- summary (per-month via ?month=YYYY-MM) ----
 	api.GET("/summary", summaryHandler.Get)
 
-	log.Println("[routes] RegisterProtectedRoutes: OK (18 routes)")
+	// ---- goals ----
+	api.GET("/goals", goalHandler.List)
+	api.POST("/goals", goalHandler.Create)
+	api.PUT("/goals/:id", goalHandler.Update)
+	api.POST("/goals/:id/contribute", goalHandler.Contribute)
+	api.DELETE("/goals/:id", goalHandler.Delete)
+
+	// ---- recurring ----
+	api.GET("/recurring", recurringHandler.List)
+	api.POST("/recurring", recurringHandler.Create)
+	api.PUT("/recurring/:id", recurringHandler.Update)
+	api.POST("/recurring/:id/pause", recurringHandler.SetActive(false))
+	api.POST("/recurring/:id/resume", recurringHandler.SetActive(true))
+	api.DELETE("/recurring/:id", recurringHandler.Delete)
+	api.POST("/recurring/run", recurringHandler.RunDue)
+
+	log.Println("[routes] RegisterProtectedRoutes: OK (33 routes)")
 }
 
-// RegisterMiddleware registers global middleware.
 func RegisterMiddleware(e *echo.Echo) {
 	log.Println("[routes] RegisterMiddleware: registering global middleware")
 
@@ -101,7 +121,6 @@ func RegisterMiddleware(e *echo.Echo) {
 	log.Println("[routes] RegisterMiddleware: OK (RequestID, Logger, Recover, CORS)")
 }
 
-// RegisterHealthCheck registers the health check endpoint.
 func RegisterHealthCheck(e *echo.Echo) {
 	log.Println("[routes] RegisterHealthCheck: registering /healthz")
 
@@ -110,7 +129,6 @@ func RegisterHealthCheck(e *echo.Echo) {
 	})
 }
 
-// RegisterSwaggerUI registers the Swagger/OpenAPI documentation endpoint.
 func RegisterSwaggerUI(e *echo.Echo) {
 	log.Println("[routes] RegisterSwaggerUI: registering swagger docs routes")
 
