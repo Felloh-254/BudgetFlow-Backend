@@ -38,7 +38,3 @@ require (
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
 )
-
-// Run `go mod tidy` locally after copying this project — it will resolve
-// exact indirect dependencies and generate go.sum. This file couldn't be
-// verified against the Go module proxy in the sandbox this was written in.
