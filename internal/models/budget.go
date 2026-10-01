@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"time"
 )
 
@@ -24,8 +23,4 @@ type BudgetInput struct {
 	Category string  `json:"category"`
 	Color    string  `json:"color"`
 	Month    string  `json:"month,omitempty"` // optional; defaults to current month
-}
-
-func init() {
-	log.Println("[models.budget] Budget models loaded")
 }

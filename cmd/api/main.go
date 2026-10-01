@@ -17,6 +17,7 @@ import (
 	"budgetapp/internal/config"
 	"budgetapp/internal/database"
 	"budgetapp/internal/handler"
+	"budgetapp/internal/logger"
 	"budgetapp/internal/repository"
 	"budgetapp/internal/routes"
 	"budgetapp/internal/service"
@@ -25,14 +26,21 @@ import (
 )
 
 func main() {
+	// Initializing the logger
+	logger.Init()
+	logger.Logger.Info("Starting the app.....")
+
+	// Initializing configuration
 	cfg := config.Load()
 
+	// Creating a database pool
 	pool, err := database.NewPool(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("database connection failed: %v", err)
 	}
 	defer pool.Close()
 
+	// Initializing JWT auth tokens
 	tokens := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTExpiry)
 
 	// Repositories (data access)

@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"time"
 )
 
@@ -28,8 +27,4 @@ type GoalInput struct {
 
 type GoalContributeInput struct {
 	Amount float64 `json:"amount"`
-}
-
-func init() {
-	log.Println("[models.goal] Goal models loaded")
 }

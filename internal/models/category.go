@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"time"
 )
 
@@ -15,8 +14,4 @@ type Category struct {
 	Type      string    `json:"type"` // "expense" or "income"
 	Color     string    `json:"color"`
 	CreatedAt time.Time `json:"created_at"`
-}
-
-func init() {
-	log.Println("[models.category] Category model loaded")
 }

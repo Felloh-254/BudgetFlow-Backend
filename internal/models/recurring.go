@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"time"
 )
 
@@ -40,8 +39,4 @@ type RecurringRuleInput struct {
 	IntervalCount int     `json:"interval_count,omitempty"`
 	StartDate     string  `json:"start_date"`
 	EndDate       string  `json:"end_date,omitempty"`
-}
-
-func init() {
-	log.Println("[models.recurring] Recurring models loaded")
 }
