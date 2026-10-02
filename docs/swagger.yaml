@@ -297,6 +297,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: Insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           description: Unauthorized
           content:
@@ -564,6 +570,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: Reversing the transaction would make an account balance negative
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     get:
       summary: Get transaction details
       description: Retrieve full transaction detail including ledger movements and
@@ -681,7 +693,7 @@ paths:
                 $ref: '#/components/schemas/Error'
     post:
       summary: Create a new account
-      description: Create a new bank, mobile money, cash, or investment account
+      description: Create a new bank, mobile money (including M-Pesa), cash, or investment account
       tags:
       - Accounts
       security:
@@ -854,6 +866,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: Insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           description: Unauthorized
           content:
@@ -883,6 +901,12 @@ paths:
                 $ref: '#/components/schemas/TransactionDetail'
         '400':
           description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Insufficient funds in the source account
           content:
             application/json:
               schema:
@@ -1144,6 +1168,12 @@ components:
           - mobile_money
           - investment
           example: mobile_money
+        provider:
+          type: string
+          enum:
+          - mpesa
+          - airtel_money
+          description: Mobile money provider; set when type is mobile_money
         account_number:
           type: string
           nullable: true
@@ -1184,6 +1214,12 @@ components:
           - mobile_money
           - investment
           example: bank
+        provider:
+          type: string
+          enum:
+          - mpesa
+          - airtel_money
+          description: Mobile money provider; set when type is mobile_money
         account_number:
           type: string
           nullable: true
@@ -1218,6 +1254,12 @@ components:
           - mobile_money
           - investment
           example: bank
+        provider:
+          type: string
+          enum:
+          - mpesa
+          - airtel_money
+          description: Mobile money provider; set when type is mobile_money
         account_number:
           type: string
           nullable: true
