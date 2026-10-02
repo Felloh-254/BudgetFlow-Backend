@@ -6,7 +6,9 @@ package main
 
 import (
 	"context"
-	"log"
+	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -26,21 +28,35 @@ import (
 )
 
 func main() {
-	// Initializing the logger
-	logger.Init()
-	logger.Logger.Info("Starting the app.....")
+	if err := run(); err != nil {
+		slog.Error("fatal", "error", err)
+		os.Exit(1)
+	}
+}
 
-	// Initializing configuration
+// run holds the real startup/shutdown logic so that deferred cleanup
+// (pool.Close, stop) always executes, unlike with log.Fatal / os.Exit.
+func run() error {
+	// Configuration first: it tells us how to build the logger.
 	cfg := config.Load()
 
-	// Creating a database pool
+	// Logger is built once here and injected everywhere.
+	base := logger.New(cfg.LogLevel, cfg.LogFormat)
+	slog.SetDefault(base) // also routes stdlib log.Printf through slog
+	base.Info("starting app")
+
+	// ctx is cancelled on Ctrl+C / SIGTERM and drives all shutdown.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Database pool
 	pool, err := database.NewPool(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("database connection failed: %v", err)
+		return fmt.Errorf("database connection failed: %w", err)
 	}
 	defer pool.Close()
 
-	// Initializing JWT auth tokens
+	// JWT auth tokens
 	tokens := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTExpiry)
 
 	// Repositories (data access)
@@ -56,14 +72,14 @@ func main() {
 	recurringRepo := repository.NewRecurringRepository(pool)
 
 	// Services (business logic)
-	authService := service.NewAuthService(userRepo, tokens)
-	budgetService := service.NewBudgetService(budgetRepo, categoryRepo)
-	categoryService := service.NewCategoryService(categoryRepo)
-	transactionService := service.NewTransactionService(transactionRepo, categoryRepo, accountRepo, ledgerRepo, balanceRepo, pool)
-	summaryService := service.NewSummaryService(summaryRepo)
-	accountService := service.NewAccountsService(accountRepo)
-	goalService := service.NewGoalService(goalRepo)
-	recurringService := service.NewRecurringService(recurringRepo, categoryRepo, transactionService)
+	authService := service.NewAuthService(userRepo, tokens, base)
+	budgetService := service.NewBudgetService(budgetRepo, categoryRepo, base)
+	categoryService := service.NewCategoryService(categoryRepo, base)
+	transactionService := service.NewTransactionService(transactionRepo, categoryRepo, accountRepo, ledgerRepo, balanceRepo, pool, base)
+	summaryService := service.NewSummaryService(summaryRepo, base)
+	accountService := service.NewAccountsService(accountRepo, base)
+	goalService := service.NewGoalService(goalRepo, base)
+	recurringService := service.NewRecurringService(recurringRepo, categoryRepo, transactionService, base)
 
 	// Handlers (HTTP)
 	authHandler := handler.NewAuthHandler(authService)
@@ -78,19 +94,10 @@ func main() {
 	e := echo.New()
 	e.HideBanner = true
 
-	// Register middleware
 	routes.RegisterMiddleware(e)
-
-	// Register health check
 	routes.RegisterHealthCheck(e)
-
-	// Register Swagger/OpenAPI documentation
 	routes.RegisterSwaggerUI(e)
-
-	// Register public routes (no authentication required)
 	routes.RegisterPublicRoutes(e, authHandler)
-
-	// Register protected routes (authentication required)
 	routes.RegisterProtectedRoutes(
 		e,
 		tokens,
@@ -111,34 +118,46 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
-		for range ticker.C {
-			success, failed, err := recurringService.RunDue(context.Background())
-			if err != nil {
-				log.Printf("[main] recurring RunDue error: %v", err)
-				continue
-			}
-			if success > 0 || failed > 0 {
-				log.Printf("[main] recurring RunDue: success=%d failed=%d", success, failed)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				success, failed, err := recurringService.RunDue(ctx)
+				if err != nil {
+					base.ErrorContext(ctx, "recurring RunDue failed", "error", err)
+					continue
+				}
+				if success > 0 || failed > 0 {
+					base.InfoContext(ctx, "recurring RunDue finished", "success", success, "failed", failed)
+				}
 			}
 		}
 	}()
 
-	// Run the server in a goroutine so we can listen for shutdown signals
-	// and drain in-flight requests instead of killing connections abruptly.
+	// Run the server in a goroutine so we can wait for either a shutdown
+	// signal or a server failure.
+	serverErr := make(chan error, 1)
 	go func() {
-		if err := e.Start(":" + cfg.Port); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server failed: %v", err)
+		if err := e.Start(":" + cfg.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	<-quit
-
-	log.Println("shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := e.Shutdown(ctx); err != nil {
-		log.Fatalf("graceful shutdown failed: %v", err)
+	select {
+	case <-ctx.Done():
+		base.Info("shutting down")
+	case err := <-serverErr:
+		return fmt.Errorf("server failed: %w", err)
 	}
+
+	// Drain in-flight requests; use a fresh context since ctx is cancelled.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := e.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("graceful shutdown failed: %w", err)
+	}
+
+	base.Info("shutdown complete")
+	return nil
 }

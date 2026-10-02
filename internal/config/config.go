@@ -20,51 +20,60 @@ type Config struct {
 	JWTSecret   string
 	JWTExpiry   time.Duration
 	CORSOrigins []string
+	LogLevel    string
+	LogFormat   string
 }
 
 func Load() *Config {
-	log.Println("[config] Load: loading configuration...")
-
+	// The configured logger doesn't exist yet (it needs this config), so
+	// this package uses the stdlib log.
 	if err := godotenv.Load("../../.env"); err != nil {
-		log.Println("[config] Load: no .env file found, relying on environment variables")
-	} else {
-		log.Println("[config] Load: .env file loaded successfully")
+		log.Println("[config] no .env file found, relying on environment variables")
 	}
 
 	cfg := &Config{
 		Port:        getEnv("PORT", "8080"),
 		DatabaseURL: mustGetEnv("DATABASE_URL"),
 		JWTSecret:   mustGetEnv("JWT_SECRET"),
-		CORSOrigins: strings.Split(getEnv("CORS_ORIGINS", "http://localhost:5173 "), ","),
+		CORSOrigins: splitCSV(getEnv("CORS_ORIGINS", "http://localhost:5173")),
+		LogLevel:    getEnv("LOG_LEVEL", "info"),
+		LogFormat:   getEnv("LOG_FORMAT", "text"),
 	}
 
-	hours, err := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "24"))
+	raw := getEnv("JWT_EXPIRY_HOURS", "24")
+	hours, err := strconv.Atoi(raw)
 	if err != nil || hours <= 0 {
-		log.Printf("[config] Load: invalid JWT_EXPIRY_HOURS=%q, defaulting to 24", getEnv("JWT_EXPIRY_HOURS", "24"))
-		hours = 24 // 1 day
+		hours = 24
 	}
 	cfg.JWTExpiry = time.Duration(hours) * time.Hour
-
-	log.Printf("[config] Load: OK port=%s jwt_expiry=%s cors_origins=%v db_url_set=%v jwt_secret_set=%v",
-		cfg.Port, cfg.JWTExpiry, cfg.CORSOrigins, cfg.DatabaseURL != "", cfg.JWTSecret != "")
 
 	return cfg
 }
 
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
-		log.Printf("[config] getEnv: %s is set", key)
 		return v
 	}
-	log.Printf("[config] getEnv: %s not set, using fallback=%q", key, fallback)
 	return fallback
 }
 
 func mustGetEnv(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
-		log.Fatalf("[config] mustGetEnv: missing required environment variable: %s", key)
+		log.Fatalf("[config] missing required environment variable: %s", key)
 	}
-	log.Printf("[config] mustGetEnv: %s is set", key)
 	return v
+}
+
+// splitCSV splits a comma-separated list, trimming spaces and dropping
+// empty entries ("a.com, b.com" -> ["a.com", "b.com"]).
+func splitCSV(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
