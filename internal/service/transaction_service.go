@@ -4,7 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -23,6 +24,14 @@ type TransactionService struct {
 	ledger       *repository.LedgerRepository
 	balances     *repository.AccountBalanceRepository
 	db           *pgxpool.Pool
+	log          *slog.Logger
+}
+
+// ledgerLine is one account movement inside a transaction.
+type ledgerLine struct {
+	AccountID int
+	Amount    float64
+	EntryType string
 }
 
 func NewTransactionService(
@@ -32,8 +41,8 @@ func NewTransactionService(
 	ledger *repository.LedgerRepository,
 	balances *repository.AccountBalanceRepository,
 	db *pgxpool.Pool,
+	log *slog.Logger,
 ) *TransactionService {
-	log.Println("[service.transaction] NewTransactionService: created")
 	return &TransactionService{
 		transactions: transactions,
 		categories:   categories,
@@ -41,14 +50,12 @@ func NewTransactionService(
 		ledger:       ledger,
 		balances:     balances,
 		db:           db,
+		log:          log.With("component", "service.transaction"),
 	}
 }
 
 // List returns filtered and paginated transactions for a user
 func (s *TransactionService) List(ctx context.Context, userID int, filter models.TransactionFilter) ([]models.Transaction, error) {
-	log.Printf("[service.transaction] List: user_id=%d limit=%d offset=%d type=%q",
-		userID, filter.Limit, filter.Offset, filter.Type)
-
 	if filter.Limit <= 0 || filter.Limit > 200 {
 		filter.Limit = 100
 	}
@@ -58,45 +65,30 @@ func (s *TransactionService) List(ctx context.Context, userID int, filter models
 
 	txns, err := s.transactions.ListByUser(ctx, userID, filter)
 	if err != nil {
-		log.Printf("[service.transaction] List: repo error user_id=%d error=%v", userID, err)
-		return nil, err
+		return nil, fmt.Errorf("list transactions (user=%d): %w", userID, err)
 	}
-
-	log.Printf("[service.transaction] List: OK user_id=%d count=%d", userID, len(txns))
 	return txns, nil
 }
 
 // GetByID retrieves a single transaction with all details
 func (s *TransactionService) GetByID(ctx context.Context, transactionID, userID int) (*models.TransactionDetail, error) {
-	log.Printf("[service.transaction] GetByID: transaction_id=%d user_id=%d", transactionID, userID)
-
 	detail, err := s.enrichTransactionDetail(ctx, transactionID, userID)
 	if err != nil {
-		log.Printf("[service.transaction] GetByID: enrich failed transaction_id=%d error=%v", transactionID, err)
-		return nil, err
+		return nil, fmt.Errorf("get transaction %d: %w", transactionID, err)
 	}
 	if detail == nil {
-		log.Printf("[service.transaction] GetByID: not found transaction_id=%d user_id=%d", transactionID, userID)
 		return nil, apperr.ErrNotFound
 	}
-
-	log.Printf("[service.transaction] GetByID: OK transaction_id=%d type=%s entries=%d",
-		transactionID, detail.Transaction.Type, len(detail.Entries))
 	return detail, nil
 }
 
 // Update updates transaction metadata (title, date, note) and optionally category
 func (s *TransactionService) Update(ctx context.Context, transactionID, userID int, in models.UpdateTransactionInput) (*models.TransactionDetail, error) {
-	log.Printf("[service.transaction] Update: transaction_id=%d user_id=%d title=%q date=%q category=%q",
-		transactionID, userID, in.Title, in.Date, in.Category)
-
 	txn, err := s.transactions.GetByID(ctx, transactionID, userID)
 	if err != nil {
-		log.Printf("[service.transaction] Update: get failed transaction_id=%d error=%v", transactionID, err)
-		return nil, err
+		return nil, fmt.Errorf("update transaction %d: load: %w", transactionID, err)
 	}
 	if txn == nil {
-		log.Printf("[service.transaction] Update: not found transaction_id=%d user_id=%d", transactionID, userID)
 		return nil, apperr.ErrNotFound
 	}
 
@@ -110,182 +102,118 @@ func (s *TransactionService) Update(ctx context.Context, transactionID, userID i
 	}
 	note := in.Note
 	if note == "" && in.Title == "" && in.Date == "" && in.Category == "" {
-		log.Printf("[service.transaction] Update: no changes requested transaction_id=%d", transactionID)
+		s.log.DebugContext(ctx, "update requested no changes", "transaction_id", transactionID)
 		return s.enrichTransactionDetail(ctx, transactionID, userID)
 	}
 
-	_, err = s.transactions.Update(ctx, transactionID, userID, title, date, note)
-	if err != nil {
-		log.Printf("[service.transaction] Update: repo update failed transaction_id=%d error=%v", transactionID, err)
-		return nil, err
+	if _, err = s.transactions.Update(ctx, transactionID, userID, title, date, note); err != nil {
+		return nil, fmt.Errorf("update transaction %d: %w", transactionID, err)
 	}
 
 	if strings.TrimSpace(in.Category) != "" && txn.Type != "transfer" {
-		catType := txn.Type
-		cat, err := s.categories.FindOrCreate(ctx, userID, strings.TrimSpace(in.Category), catType)
+		cat, err := s.categories.FindOrCreate(ctx, userID, strings.TrimSpace(in.Category), txn.Type)
 		if err != nil {
-			log.Printf("[service.transaction] Update: category find/create failed transaction_id=%d error=%v", transactionID, err)
-			return nil, err
+			return nil, fmt.Errorf("update transaction %d: find/create category: %w", transactionID, err)
 		}
 		if err := s.transactions.SetCategory(ctx, transactionID, cat.ID); err != nil {
-			log.Printf("[service.transaction] Update: set category failed transaction_id=%d error=%v", transactionID, err)
-			return nil, err
+			return nil, fmt.Errorf("update transaction %d: set category: %w", transactionID, err)
 		}
 	}
 
-	log.Printf("[service.transaction] Update: OK transaction_id=%d", transactionID)
+	s.log.InfoContext(ctx, "transaction updated", "user_id", userID, "transaction_id", transactionID)
 	return s.enrichTransactionDetail(ctx, transactionID, userID)
 }
 
 // CreateIncome creates an income transaction
 func (s *TransactionService) CreateIncome(ctx context.Context, userID int, in models.TransactionInput, idempotencyKey string) (*models.TransactionDetail, error) {
-	log.Printf("[service.transaction] CreateIncome: ENTER user_id=%d idempotency_key=%s amount=%.2f account_id=%d title=%q",
-		userID, idempotencyKey, in.Amount, in.AccountID, in.Title)
-
 	if err := s.validateTransactionInput(in, "income"); err != nil {
-		log.Printf("[service.transaction] CreateIncome: validation failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
-
-	if exists, err := s.accounts.ExistsForUser(ctx, in.AccountID, userID); err != nil {
-		log.Printf("[service.transaction] CreateIncome: account check failed user_id=%d account_id=%d error=%v", userID, in.AccountID, err)
+	if err := s.requireAccount(ctx, in.AccountID, userID); err != nil {
 		return nil, err
-	} else if !exists {
-		log.Printf("[service.transaction] CreateIncome: account not found user_id=%d account_id=%d", userID, in.AccountID)
-		return nil, apperr.ErrNotFound
 	}
-
 	if in.Date == "" {
 		in.Date = time.Now().Format("2006-01-02")
 	}
 
 	cat, err := s.categories.FindOrCreate(ctx, userID, strings.TrimSpace(in.Category), "income")
 	if err != nil {
-		log.Printf("[service.transaction] CreateIncome: category failed user_id=%d error=%v", userID, err)
-		return nil, err
+		return nil, fmt.Errorf("create income: category: %w", err)
 	}
 
-	detail, err := s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
+	return s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
 		Type:  "income",
 		Title: strings.TrimSpace(in.Title),
 		Date:  in.Date,
 		Note:  in.Note,
-	}, []struct {
-		AccountID int
-		Amount    float64
-		EntryType string
-	}{
+	}, []ledgerLine{
 		{AccountID: in.AccountID, Amount: in.Amount, EntryType: "debit"},
 	}, []int{cat.ID}, idempotencyKey)
-
-	if err != nil {
-		log.Printf("[service.transaction] CreateIncome: EXIT ERROR user_id=%d idempotency_key=%s error=%v", userID, idempotencyKey, err)
-	} else {
-		log.Printf("[service.transaction] CreateIncome: EXIT OK user_id=%d idempotency_key=%s transaction_id=%d",
-			userID, idempotencyKey, detail.Transaction.ID)
-	}
-	return detail, err
 }
 
 // CreateExpense creates an expense transaction
 func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in models.TransactionInput, idempotencyKey string) (*models.TransactionDetail, error) {
-	log.Printf("[service.transaction] CreateExpense: ENTER user_id=%d idempotency_key=%s amount=%.2f account_id=%d title=%q",
-		userID, idempotencyKey, in.Amount, in.AccountID, in.Title)
-
 	if err := s.validateTransactionInput(in, "expense"); err != nil {
-		log.Printf("[service.transaction] CreateExpense: validation failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
-
-	if exists, err := s.accounts.ExistsForUser(ctx, in.AccountID, userID); err != nil {
-		log.Printf("[service.transaction] CreateExpense: account check failed user_id=%d account_id=%d error=%v", userID, in.AccountID, err)
+	if err := s.requireAccount(ctx, in.AccountID, userID); err != nil {
 		return nil, err
-	} else if !exists {
-		log.Printf("[service.transaction] CreateExpense: account not found user_id=%d account_id=%d", userID, in.AccountID)
-		return nil, apperr.ErrNotFound
 	}
-
 	if in.Date == "" {
 		in.Date = time.Now().Format("2006-01-02")
 	}
 
 	cat, err := s.categories.FindOrCreate(ctx, userID, strings.TrimSpace(in.Category), "expense")
 	if err != nil {
-		log.Printf("[service.transaction] CreateExpense: category failed user_id=%d error=%v", userID, err)
-		return nil, err
+		return nil, fmt.Errorf("create expense: category: %w", err)
 	}
 
-	detail, err := s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
+	return s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
 		Type:  "expense",
 		Title: strings.TrimSpace(in.Title),
 		Date:  in.Date,
 		Note:  in.Note,
-	}, []struct {
-		AccountID int
-		Amount    float64
-		EntryType string
-	}{
+	}, []ledgerLine{
 		{AccountID: in.AccountID, Amount: -in.Amount, EntryType: "credit"},
 	}, []int{cat.ID}, idempotencyKey)
-
-	if err != nil {
-		log.Printf("[service.transaction] CreateExpense: EXIT ERROR user_id=%d idempotency_key=%s error=%v", userID, idempotencyKey, err)
-	} else {
-		log.Printf("[service.transaction] CreateExpense: EXIT OK user_id=%d idempotency_key=%s transaction_id=%d",
-			userID, idempotencyKey, detail.Transaction.ID)
-	}
-	return detail, err
 }
 
 // CreateTransfer creates a transfer transaction
 func (s *TransactionService) CreateTransfer(ctx context.Context, userID int, in models.TransferInput, idempotencyKey string) (*models.TransactionDetail, error) {
-	log.Printf("[service.transaction] CreateTransfer: ENTER user_id=%d idempotency_key=%s amount=%.2f from=%d to=%d",
-		userID, idempotencyKey, in.Amount, in.FromAccountID, in.ToAccountID)
-
 	if err := s.validateTransferInput(in); err != nil {
-		log.Printf("[service.transaction] CreateTransfer: validation failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
-
-	if exists, err := s.accounts.ExistsForUser(ctx, in.FromAccountID, userID); err != nil {
+	if err := s.requireAccount(ctx, in.FromAccountID, userID); err != nil {
 		return nil, err
-	} else if !exists {
-		log.Printf("[service.transaction] CreateTransfer: from account not found user_id=%d account_id=%d", userID, in.FromAccountID)
-		return nil, apperr.ErrNotFound
 	}
-
-	if exists, err := s.accounts.ExistsForUser(ctx, in.ToAccountID, userID); err != nil {
+	if err := s.requireAccount(ctx, in.ToAccountID, userID); err != nil {
 		return nil, err
-	} else if !exists {
-		log.Printf("[service.transaction] CreateTransfer: to account not found user_id=%d account_id=%d", userID, in.ToAccountID)
-		return nil, apperr.ErrNotFound
 	}
-
 	if in.Date == "" {
 		in.Date = time.Now().Format("2006-01-02")
 	}
 
-	detail, err := s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
+	return s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
 		Type:  "transfer",
 		Title: strings.TrimSpace(in.Title),
 		Date:  in.Date,
 		Note:  in.Note,
-	}, []struct {
-		AccountID int
-		Amount    float64
-		EntryType string
-	}{
+	}, []ledgerLine{
 		{AccountID: in.FromAccountID, Amount: -in.Amount, EntryType: "credit"},
 		{AccountID: in.ToAccountID, Amount: in.Amount, EntryType: "debit"},
 	}, []int{}, idempotencyKey)
+}
 
+// requireAccount returns apperr.ErrNotFound unless the account belongs to the user.
+func (s *TransactionService) requireAccount(ctx context.Context, accountID, userID int) error {
+	exists, err := s.accounts.ExistsForUser(ctx, accountID, userID)
 	if err != nil {
-		log.Printf("[service.transaction] CreateTransfer: EXIT ERROR user_id=%d idempotency_key=%s error=%v", userID, idempotencyKey, err)
-	} else {
-		log.Printf("[service.transaction] CreateTransfer: EXIT OK user_id=%d idempotency_key=%s transaction_id=%d",
-			userID, idempotencyKey, detail.Transaction.ID)
+		return fmt.Errorf("check account %d: %w", accountID, err)
 	}
-	return detail, err
+	if !exists {
+		return apperr.ErrNotFound
+	}
+	return nil
 }
 
 // createTransactionWithLedgerEntries atomically creates a transaction, ledger entries, and updates balances
@@ -293,28 +221,19 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 	ctx context.Context,
 	userID int,
 	txn models.Transaction,
-	entries []struct {
-		AccountID int
-		Amount    float64
-		EntryType string
-	},
+	entries []ledgerLine,
 	categoryIDs []int,
 	idempotencyKey string,
 ) (*models.TransactionDetail, error) {
-	log.Printf("[service.transaction] createTransactionWithLedgerEntries: ENTER user_id=%d type=%s idempotency_key=%s num_entries=%d",
-		userID, txn.Type, idempotencyKey, len(entries))
-
 	conn, err := s.db.Acquire(ctx)
 	if err != nil {
-		log.Printf("[service.transaction] createTransactionWithLedgerEntries: acquire conn failed error=%v", err)
-		return nil, err
+		return nil, fmt.Errorf("acquire connection: %w", err)
 	}
 	defer conn.Release()
 
 	tx, err := conn.Begin(ctx)
 	if err != nil {
-		log.Printf("[service.transaction] createTransactionWithLedgerEntries: begin tx failed error=%v", err)
-		return nil, err
+		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
@@ -326,21 +245,22 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 			idempotencyKey, userID,
 		).Scan(&existingID)
 		if err == nil {
-			log.Printf("[service.transaction] idempotency fast-path HIT: user_id=%d idempotency_key=%s existing_transaction_id=%d — returning existing",
-				userID, idempotencyKey, existingID)
+			s.log.InfoContext(ctx, "idempotent replay, returning existing transaction",
+				"user_id", userID,
+				"idempotency_key", idempotencyKey,
+				"transaction_id", existingID,
+			)
 			return s.enrichTransactionDetail(ctx, existingID, userID)
 		}
-		if err != pgx.ErrNoRows {
-			return nil, err
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("idempotency lookup: %w", err)
 		}
-		log.Printf("[service.transaction] idempotency fast-path MISS: user_id=%d idempotency_key=%s — proceeding to insert",
-			userID, idempotencyKey)
 	}
 
 	var createdTxn models.Transaction
 	var idempKey sql.NullString
 
-	var idempotencyKeyParam interface{} = nil
+	var idempotencyKeyParam interface{}
 	if idempotencyKey != "" {
 		idempotencyKeyParam = idempotencyKey
 	}
@@ -353,47 +273,41 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 		userID, txn.Type, txn.Title, txn.Date, txn.Note, idempotencyKeyParam,
 	).Scan(&createdTxn.ID, &createdTxn.UserID, &createdTxn.Type, &createdTxn.Title, &createdTxn.Date, &createdTxn.Note, &idempKey, &createdTxn.CreatedAt, &createdTxn.UpdatedAt)
 
-	if err == pgx.ErrNoRows {
-		log.Printf("[service.transaction] INSERT lost ON CONFLICT race: user_id=%d idempotency_key=%s — fetching winner's row",
-			userID, idempotencyKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Another request with the same key won the race.
 		if idempotencyKey == "" {
 			return nil, errors.New("transaction insert returned no rows unexpectedly")
 		}
+		s.log.InfoContext(ctx, "lost idempotency race, fetching winner",
+			"user_id", userID,
+			"idempotency_key", idempotencyKey,
+		)
 		var winnerID int
 		lookupErr := s.db.QueryRow(ctx,
 			`SELECT id FROM transactions_v2 WHERE idempotency_key = $1 AND user_id = $2`,
 			idempotencyKey, userID,
 		).Scan(&winnerID)
 		if lookupErr != nil {
-			return nil, lookupErr
+			return nil, fmt.Errorf("idempotency winner lookup: %w", lookupErr)
 		}
 		return s.enrichTransactionDetail(ctx, winnerID, userID)
 	}
 	if err != nil {
-		log.Printf("[service.transaction] INSERT failed: user_id=%d idempotency_key=%s error=%v", userID, idempotencyKey, err)
-		return nil, err
+		return nil, fmt.Errorf("insert transaction: %w", err)
 	}
 
 	if idempKey.Valid {
 		createdTxn.IdempotencyKey = &idempKey.String
 	}
 
-	log.Printf("[service.transaction] INSERT won: user_id=%d idempotency_key=%s new_transaction_id=%d — writing %d ledger entries",
-		userID, idempotencyKey, createdTxn.ID, len(entries))
-
 	for i, e := range entries {
-		_, err := tx.Exec(ctx,
+		if _, err := tx.Exec(ctx,
 			`INSERT INTO ledger_entries (transaction_id, account_id, amount, entry_type)
 			 VALUES ($1, $2, $3, $4)`,
 			createdTxn.ID, e.AccountID, e.Amount, e.EntryType,
-		)
-		if err != nil {
-			log.Printf("[service.transaction] ledger entry %d/%d insert failed: transaction_id=%d error=%v",
-				i+1, len(entries), createdTxn.ID, err)
-			return nil, err
+		); err != nil {
+			return nil, fmt.Errorf("insert ledger entry %d/%d (transaction=%d): %w", i+1, len(entries), createdTxn.ID, err)
 		}
-		log.Printf("[service.transaction] ledger entry %d/%d inserted: transaction_id=%d account_id=%d amount=%.2f entry_type=%s",
-			i+1, len(entries), createdTxn.ID, e.AccountID, e.Amount, e.EntryType)
 
 		var currentBalance float64
 		var version int
@@ -402,18 +316,22 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 			e.AccountID,
 		).Scan(&currentBalance, &version)
 		if err != nil {
-			log.Printf("[service.transaction] balance select failed: account_id=%d error=%v", e.AccountID, err)
-			return nil, err
+			return nil, fmt.Errorf("select balance (account=%d): %w", e.AccountID, err)
 		}
 
 		if e.Amount < 0 && currentBalance+e.Amount < 0 {
-			log.Print("[Service.transaction] Insufficient balance to complete the transaction")
-			return nil, errors.New("Insufficient funds")
+			return nil, apperr.Validation("insufficient funds")
 		}
 
 		newBalance := currentBalance + e.Amount
-		log.Printf("[service.transaction] balance update: transaction_id=%d account_id=%d current_balance=%.2f delta=%.2f new_balance=%.2f version=%d",
-			createdTxn.ID, e.AccountID, currentBalance, e.Amount, newBalance, version)
+		s.log.DebugContext(ctx, "updating balance",
+			"transaction_id", createdTxn.ID,
+			"account_id", e.AccountID,
+			"current_balance", currentBalance,
+			"delta", e.Amount,
+			"new_balance", newBalance,
+			"version", version,
+		)
 
 		result, err := tx.Exec(ctx,
 			`UPDATE account_balances
@@ -422,43 +340,45 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 			newBalance, createdTxn.ID, e.AccountID, version,
 		)
 		if err != nil {
-			log.Printf("[service.transaction] balance update failed: account_id=%d error=%v", e.AccountID, err)
-			return nil, err
+			return nil, fmt.Errorf("update balance (account=%d): %w", e.AccountID, err)
 		}
 		if result.RowsAffected() == 0 {
-			log.Printf("[service.transaction] balance update CONFLICT: account_id=%d expected_version=%d", e.AccountID, version)
+			s.log.WarnContext(ctx, "balance version conflict",
+				"account_id", e.AccountID,
+				"expected_version", version,
+			)
 			return nil, errors.New("concurrent balance update detected, please retry")
 		}
 	}
 
 	for _, catID := range categoryIDs {
-		_, err := tx.Exec(ctx,
+		if _, err := tx.Exec(ctx,
 			`INSERT INTO transaction_categories (transaction_id, category_id)
 			 VALUES ($1, $2)
 			 ON CONFLICT (transaction_id, category_id) DO NOTHING`,
 			createdTxn.ID, catID,
-		)
-		if err != nil {
-			log.Printf("[service.transaction] category insert failed: transaction_id=%d category_id=%d error=%v",
-				createdTxn.ID, catID, err)
-			return nil, err
+		); err != nil {
+			return nil, fmt.Errorf("insert category link (transaction=%d, category=%d): %w", createdTxn.ID, catID, err)
 		}
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		log.Printf("[service.transaction] COMMIT FAILED: user_id=%d idempotency_key=%s transaction_id=%d error=%v",
-			userID, idempotencyKey, createdTxn.ID, err)
-		return nil, err
+		return nil, fmt.Errorf("commit (transaction=%d): %w", createdTxn.ID, err)
 	}
-	log.Printf("[service.transaction] COMMIT OK: user_id=%d idempotency_key=%s transaction_id=%d", userID, idempotencyKey, createdTxn.ID)
+
+	s.log.InfoContext(ctx, "transaction created",
+		"user_id", userID,
+		"transaction_id", createdTxn.ID,
+		"type", txn.Type,
+		"entries", len(entries),
+		"idempotency_key", idempotencyKey,
+	)
 
 	return s.enrichTransactionDetail(ctx, createdTxn.ID, userID)
 }
 
 // enrichTransactionDetail loads a transaction with all related data
 func (s *TransactionService) enrichTransactionDetail(ctx context.Context, txnID, userID int) (*models.TransactionDetail, error) {
-	log.Printf("[service.transaction] enrichTransactionDetail: transaction_id=%d user_id=%d", txnID, userID)
-
 	txn, err := s.transactions.GetByID(ctx, txnID, userID)
 	if err != nil || txn == nil {
 		return nil, err
@@ -466,26 +386,29 @@ func (s *TransactionService) enrichTransactionDetail(ctx context.Context, txnID,
 
 	entries, err := s.ledger.ListByTransaction(ctx, txnID)
 	if err != nil {
-		log.Printf("[service.transaction] enrichTransactionDetail: ledger list failed transaction_id=%d error=%v", txnID, err)
-		return nil, err
+		return nil, fmt.Errorf("list ledger entries (transaction=%d): %w", txnID, err)
 	}
 
 	categories, err := s.transactions.GetCategories(ctx, txnID)
 	if err != nil {
-		log.Printf("[service.transaction] enrichTransactionDetail: categories failed transaction_id=%d error=%v", txnID, err)
-		return nil, err
+		return nil, fmt.Errorf("get categories (transaction=%d): %w", txnID, err)
 	}
 
 	accountNames := make(map[int]string)
 	for _, entry := range entries {
 		acc, err := s.accounts.GetAccountByID(ctx, entry.AccountID, userID)
-		if err == nil && acc != nil {
+		if err != nil {
+			// Non-fatal: the detail is still useful without the name.
+			s.log.WarnContext(ctx, "account name lookup failed",
+				"account_id", entry.AccountID,
+				"error", err,
+			)
+			continue
+		}
+		if acc != nil {
 			accountNames[entry.AccountID] = acc.Name
 		}
 	}
-
-	log.Printf("[service.transaction] enrichTransactionDetail: OK transaction_id=%d entries=%d categories=%d accounts=%d",
-		txnID, len(entries), len(categories), len(accountNames))
 
 	return &models.TransactionDetail{
 		Transaction:  *txn,
@@ -497,35 +420,30 @@ func (s *TransactionService) enrichTransactionDetail(ctx context.Context, txnID,
 
 // Delete removes a transaction and reverses all ledger entries
 func (s *TransactionService) Delete(ctx context.Context, transactionID, userID int) error {
-	log.Printf("[service.transaction] Delete: ENTER transaction_id=%d user_id=%d", transactionID, userID)
-
 	txn, err := s.transactions.GetByID(ctx, transactionID, userID)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete transaction %d: load: %w", transactionID, err)
 	}
 	if txn == nil {
-		log.Printf("[service.transaction] Delete: not found transaction_id=%d user_id=%d", transactionID, userID)
 		return apperr.ErrNotFound
 	}
 
 	conn, err := s.db.Acquire(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("acquire connection: %w", err)
 	}
 	defer conn.Release()
 
 	tx, err := conn.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
 	entries, err := s.ledger.ListByTransaction(ctx, transactionID)
 	if err != nil {
-		return err
+		return fmt.Errorf("list ledger entries (transaction=%d): %w", transactionID, err)
 	}
-
-	log.Printf("[service.transaction] Delete: reversing %d ledger entries transaction_id=%d", len(entries), transactionID)
 
 	for _, entry := range entries {
 		var currentBalance float64
@@ -535,12 +453,17 @@ func (s *TransactionService) Delete(ctx context.Context, transactionID, userID i
 			entry.AccountID,
 		).Scan(&currentBalance, &version)
 		if err != nil {
-			return err
+			return fmt.Errorf("select balance (account=%d): %w", entry.AccountID, err)
 		}
 
 		newBalance := currentBalance - entry.Amount
-		log.Printf("[service.transaction] Delete: reversing entry transaction_id=%d account_id=%d current=%.2f reverse=%.2f new=%.2f",
-			transactionID, entry.AccountID, currentBalance, entry.Amount, newBalance)
+		s.log.DebugContext(ctx, "reversing ledger entry",
+			"transaction_id", transactionID,
+			"account_id", entry.AccountID,
+			"current_balance", currentBalance,
+			"reverse_amount", entry.Amount,
+			"new_balance", newBalance,
+		)
 
 		result, err := tx.Exec(ctx,
 			`UPDATE account_balances
@@ -552,33 +475,38 @@ func (s *TransactionService) Delete(ctx context.Context, transactionID, userID i
 			newBalance, entry.AccountID, version, transactionID,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("reverse balance (account=%d): %w", entry.AccountID, err)
 		}
 		if result.RowsAffected() == 0 {
-			log.Printf("[service.transaction] Delete: balance CONFLICT account_id=%d version=%d", entry.AccountID, version)
+			s.log.WarnContext(ctx, "balance version conflict",
+				"account_id", entry.AccountID,
+				"expected_version", version,
+			)
 			return errors.New("concurrent balance update detected")
 		}
 	}
 
-	_, err = tx.Exec(ctx, `DELETE FROM ledger_entries WHERE transaction_id = $1`, transactionID)
-	if err != nil {
-		return err
+	if _, err = tx.Exec(ctx, `DELETE FROM ledger_entries WHERE transaction_id = $1`, transactionID); err != nil {
+		return fmt.Errorf("delete ledger entries (transaction=%d): %w", transactionID, err)
 	}
 
 	result, err := tx.Exec(ctx, `DELETE FROM transactions_v2 WHERE id = $1 AND user_id = $2`, transactionID, userID)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete transaction %d: %w", transactionID, err)
 	}
 	if result.RowsAffected() == 0 {
 		return apperr.ErrNotFound
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		log.Printf("[service.transaction] Delete: COMMIT FAILED transaction_id=%d error=%v", transactionID, err)
-		return err
+		return fmt.Errorf("commit delete (transaction=%d): %w", transactionID, err)
 	}
 
-	log.Printf("[service.transaction] Delete: OK transaction_id=%d user_id=%d", transactionID, userID)
+	s.log.InfoContext(ctx, "transaction deleted",
+		"user_id", userID,
+		"transaction_id", transactionID,
+		"entries_reversed", len(entries),
+	)
 	return nil
 }
 

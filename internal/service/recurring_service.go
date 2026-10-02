@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -16,33 +16,33 @@ type RecurringService struct {
 	rules      *repository.RecurringRepository
 	categories *repository.CategoryRepository
 	txns       *TransactionService
+	log        *slog.Logger
 }
 
 func NewRecurringService(
 	rules *repository.RecurringRepository,
 	categories *repository.CategoryRepository,
 	txns *TransactionService,
+	log *slog.Logger,
 ) *RecurringService {
-	log.Println("[service.recurring] NewRecurringService: created")
-	return &RecurringService{rules: rules, categories: categories, txns: txns}
+	return &RecurringService{
+		rules:      rules,
+		categories: categories,
+		txns:       txns,
+		log:        log.With("component", "service.recurring"),
+	}
 }
 
 func (s *RecurringService) List(ctx context.Context, userID int) ([]models.RecurringRule, error) {
-	log.Printf("[service.recurring] List: user_id=%d", userID)
 	rs, err := s.rules.ListByUser(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list recurring rules (user=%d): %w", userID, err)
 	}
-	log.Printf("[service.recurring] List: OK user_id=%d count=%d", userID, len(rs))
 	return rs, nil
 }
 
 func (s *RecurringService) Create(ctx context.Context, userID int, in models.RecurringRuleInput) (*models.RecurringRule, error) {
-	log.Printf("[service.recurring] Create: user_id=%d type=%s freq=%s amount=%.2f",
-		userID, in.Type, in.Frequency, in.Amount)
-
 	if err := validateRecurringInput(in); err != nil {
-		log.Printf("[service.recurring] Create: validation failed user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 	if in.IntervalCount <= 0 {
@@ -60,23 +60,26 @@ func (s *RecurringService) Create(ctx context.Context, userID int, in models.Rec
 		}
 		cat, err := s.categories.FindOrCreate(ctx, userID, strings.TrimSpace(in.Category), catType)
 		if err != nil {
-			log.Printf("[service.recurring] Create: category find/create failed error=%v", err)
-			return nil, err
+			return nil, fmt.Errorf("find/create category: %w", err)
 		}
 		catID = &cat.ID
 	}
 
 	r, err := s.rules.Create(ctx, userID, in, catID)
 	if err != nil {
-		log.Printf("[service.recurring] Create: repo error user_id=%d error=%v", userID, err)
-		return nil, err
+		return nil, fmt.Errorf("create recurring rule: %w", err)
 	}
-	log.Printf("[service.recurring] Create: OK rule_id=%d next_run=%s", r.ID, r.NextRunAt)
+
+	s.log.InfoContext(ctx, "recurring rule created",
+		"user_id", userID,
+		"rule_id", r.ID,
+		"type", r.Type,
+		"next_run", r.NextRunAt,
+	)
 	return r, nil
 }
 
 func (s *RecurringService) Update(ctx context.Context, id, userID int, in models.RecurringRuleInput) (*models.RecurringRule, error) {
-	log.Printf("[service.recurring] Update: rule_id=%d user_id=%d", id, userID)
 	if err := validateRecurringInput(in); err != nil {
 		return nil, err
 	}
@@ -92,7 +95,7 @@ func (s *RecurringService) Update(ctx context.Context, id, userID int, in models
 		}
 		cat, err := s.categories.FindOrCreate(ctx, userID, strings.TrimSpace(in.Category), catType)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("find/create category: %w", err)
 		}
 		catID = &cat.ID
 	}
@@ -101,80 +104,91 @@ func (s *RecurringService) Update(ctx context.Context, id, userID int, in models
 	if err != nil {
 		return nil, apperr.ErrNotFound
 	}
-	log.Printf("[service.recurring] Update: OK rule_id=%d", r.ID)
+
+	s.log.InfoContext(ctx, "recurring rule updated",
+		"user_id", userID,
+		"rule_id", r.ID,
+	)
 	return r, nil
 }
 
 func (s *RecurringService) SetActive(ctx context.Context, id, userID int, active bool) (*models.RecurringRule, error) {
-	log.Printf("[service.recurring] SetActive: rule_id=%d user_id=%d active=%v", id, userID, active)
 	r, err := s.rules.SetActive(ctx, id, userID, active)
 	if err != nil {
 		return nil, apperr.ErrNotFound
 	}
+
+	s.log.InfoContext(ctx, "recurring rule active status changed",
+		"user_id", userID,
+		"rule_id", id,
+		"active", active,
+	)
 	return r, nil
 }
 
 func (s *RecurringService) Delete(ctx context.Context, id, userID int) error {
-	log.Printf("[service.recurring] Delete: rule_id=%d user_id=%d", id, userID)
 	ok, err := s.rules.Delete(ctx, id, userID)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete recurring rule (id=%d): %w", id, err)
 	}
 	if !ok {
 		return apperr.ErrNotFound
 	}
+
+	s.log.InfoContext(ctx, "recurring rule deleted",
+		"user_id", userID,
+		"rule_id", id,
+	)
 	return nil
 }
 
 func (s *RecurringService) RunDue(ctx context.Context) (int, int, error) {
-	log.Printf("[service.recurring] RunDue: starting scan")
-
 	rules, err := s.rules.DueRules(ctx)
 	if err != nil {
-		log.Printf("[service.recurring] RunDue: DueRules failed error=%v", err)
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("fetch due rules: %w", err)
 	}
-	log.Printf("[service.recurring] RunDue: found %d due rules", len(rules))
 
 	today := time.Now().Format("2006-01-02")
 	success, failed := 0, 0
 
 	for _, rule := range rules {
-		log.Printf("[service.recurring] RunDue: processing rule_id=%d user_id=%d type=%s title=%q amount=%.2f next_run=%s",
-			rule.ID, rule.UserID, rule.Type, rule.Title, rule.Amount, rule.NextRunAt)
-
 		if rule.NextRunAt > today {
-			log.Printf("[service.recurring] RunDue: rule_id=%d skipped (next_run in future)", rule.ID)
 			continue
 		}
 
 		txnID, err := s.materialize(ctx, rule)
 		if err != nil {
-			log.Printf("[service.recurring] RunDue: rule_id=%d MATERIALIZE FAILED error=%v", rule.ID, err)
+			s.log.ErrorContext(ctx, "recurring materialize failed",
+				"rule_id", rule.ID,
+				"user_id", rule.UserID,
+				"error", err,
+			)
 			_ = s.rules.RecordRunFailure(ctx, rule.ID, rule.NextRunAt, err.Error())
 			failed++
 			continue
 		}
-		log.Printf("[service.recurring] RunDue: rule_id=%d materialized transaction_id=%d", rule.ID, txnID)
 
-		nextRun, done := advanceDate(rule.NextRunAt, rule.Frequency, rule.IntervalCount, rule.EndDate)
-		log.Printf("[service.recurring] RunDue: rule_id=%d advancing next_run=%s done=%v", rule.ID, nextRun, done)
+		nextRun, done := s.advanceDate(rule.NextRunAt, rule.Frequency, rule.IntervalCount, rule.EndDate)
 
 		if err := s.rules.AdvanceRun(ctx, rule.ID, rule.NextRunAt, nextRun, txnID, done); err != nil {
-			log.Printf("[service.recurring] RunDue: rule_id=%d advance FAILED error=%v", rule.ID, err)
+			s.log.ErrorContext(ctx, "recurring advance failed",
+				"rule_id", rule.ID,
+				"user_id", rule.UserID,
+				"error", err,
+			)
 			failed++
 			continue
 		}
 		success++
 	}
 
-	log.Printf("[service.recurring] RunDue: DONE success=%d failed=%d", success, failed)
+	if success > 0 || failed > 0 {
+		s.log.InfoContext(ctx, "recurring run completed", "success", success, "failed", failed)
+	}
 	return success, failed, nil
 }
 
 func (s *RecurringService) materialize(ctx context.Context, rule models.RecurringRule) (int, error) {
-	log.Printf("[service.recurring] materialize: rule_id=%d type=%s", rule.ID, rule.Type)
-
 	key := fmt.Sprintf("recurring-%d-%s", rule.ID, rule.NextRunAt)
 	catName := categoryName(ctx, s.categories, rule.UserID, rule.CategoryID)
 
@@ -239,10 +253,10 @@ func categoryName(ctx context.Context, cats *repository.CategoryRepository, user
 	return ""
 }
 
-func advanceDate(from, freq string, n int, endDate *string) (string, bool) {
+func (s *RecurringService) advanceDate(from, freq string, n int, endDate *string) (string, bool) {
 	t, err := time.Parse("2006-01-02", from)
 	if err != nil {
-		log.Printf("[service.recurring] advanceDate: parse error from=%q error=%v", from, err)
+		s.log.Warn("advanceDate: parse error", "from", from, "error", err)
 		return from, true
 	}
 
@@ -254,13 +268,12 @@ func advanceDate(from, freq string, n int, endDate *string) (string, bool) {
 	case "monthly":
 		t = t.AddDate(0, n, 0)
 	default:
-		log.Printf("[service.recurring] advanceDate: unknown frequency=%q — deactivating", freq)
+		s.log.Warn("advanceDate: unknown frequency, deactivating", "frequency", freq)
 		return from, true
 	}
 
 	next := t.Format("2006-01-02")
 	if endDate != nil && *endDate != "" && next > *endDate {
-		log.Printf("[service.recurring] advanceDate: next=%s past end_date=%s — deactivating", next, *endDate)
 		return next, true
 	}
 	return next, false

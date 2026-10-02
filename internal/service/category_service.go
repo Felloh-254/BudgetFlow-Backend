@@ -2,7 +2,8 @@ package service
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 
 	"budgetapp/internal/models"
 	"budgetapp/internal/repository"
@@ -10,22 +11,20 @@ import (
 
 type CategoryService struct {
 	categories *repository.CategoryRepository
+	log        *slog.Logger
 }
 
-func NewCategoryService(categories *repository.CategoryRepository) *CategoryService {
-	log.Println("[service.category] NewCategoryService: created")
-	return &CategoryService{categories: categories}
+func NewCategoryService(categories *repository.CategoryRepository, log *slog.Logger) *CategoryService {
+	return &CategoryService{
+		categories: categories,
+		log:        log.With("component", "service.category"),
+	}
 }
 
 func (s *CategoryService) List(ctx context.Context, userID int) ([]models.Category, error) {
-	log.Printf("[service.category] List: user_id=%d", userID)
-
 	cats, err := s.categories.ListByUser(ctx, userID)
 	if err != nil {
-		log.Printf("[service.category] List: repo error user_id=%d error=%v", userID, err)
-		return nil, err
+		return nil, fmt.Errorf("list categories (user=%d): %w", userID, err)
 	}
-
-	log.Printf("[service.category] List: OK user_id=%d count=%d", userID, len(cats))
 	return cats, nil
 }
