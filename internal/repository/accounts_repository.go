@@ -21,7 +21,7 @@ func NewAccountsRepository(db *pgxpool.Pool) *AccountsRepository {
 }
 
 // CreateAccount creates a new account and initializes its balance record
-func (r *AccountsRepository) CreateAccount(ctx context.Context, userID int, name string, accountType string, accountNumber *string, initialBalance float64, currency string) (*models.Account, error) {
+func (r *AccountsRepository) CreateAccount(ctx context.Context, userID int, name string, accountType, provider string, accountNumber *string, initialBalance float64, currency string) (*models.Account, error) {
 	log.Printf("[repo.accounts] CreateAccount: user_id=%d name=%q type=%q currency=%q initial_balance=%.2f",
 		userID, name, accountType, currency, initialBalance)
 
@@ -34,11 +34,11 @@ func (r *AccountsRepository) CreateAccount(ctx context.Context, userID int, name
 
 	var a models.Account
 	err = tx.QueryRow(ctx,
-		`INSERT INTO accounts (user_id, name, type, account_number, currency)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, user_id, name, type, account_number, created_at, updated_at, currency`,
-		userID, name, accountType, accountNumber, currency,
-	).Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.AccountNumber, &a.CreatedAt, &a.UpdatedAt, &a.Currency)
+		`INSERT INTO accounts (user_id, name, type, provider, account_number, currency)
+		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6)
+		 RETURNING id, user_id, name, type, COALESCE(provider, ''), account_number, created_at, updated_at, currency`,
+		userID, name, accountType, provider, accountNumber, currency,
+	).Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.Provider, &a.AccountNumber, &a.CreatedAt, &a.UpdatedAt, &a.Currency)
 	if err != nil {
 		log.Printf("[repo.accounts] CreateAccount: insert failed user_id=%d error=%v", userID, err)
 		return nil, err
@@ -71,7 +71,7 @@ func (r *AccountsRepository) ListAccountsByUser(ctx context.Context, userID int)
 	log.Printf("[repo.accounts] ListAccountsByUser: ENTER user_id=%d", userID)
 
 	rows, err := r.db.Query(ctx,
-		`SELECT a.id, a.user_id, a.name, a.type, a.account_number, ab.balance, a.created_at, a.updated_at, a.currency
+		`SELECT a.id, a.user_id, a.name, a.type, COALESCE(a.provider, ''), a.account_number, ab.balance, a.created_at, a.updated_at, a.currency
 		 FROM accounts a
 		 LEFT JOIN account_balances ab ON ab.account_id = a.id
 		 WHERE a.user_id = $1
@@ -99,7 +99,7 @@ func (r *AccountsRepository) ListAccountsByUser(ctx context.Context, userID int)
 		var a models.Account
 		var balance sql.NullFloat64
 
-		if err := rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.AccountNumber, &balance, &a.CreatedAt, &a.UpdatedAt, &a.Currency); err != nil {
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.Provider, &a.AccountNumber, &balance, &a.CreatedAt, &a.UpdatedAt, &a.Currency); err != nil {
 			log.Printf("[repo.accounts] ListAccountsByUser: scan failed user_id=%d row=%d error=%v", userID, rowNum, err)
 			return nil, err
 		}
@@ -141,12 +141,12 @@ func (r *AccountsRepository) GetAccountByID(ctx context.Context, accountID, user
 	var a models.Account
 	var balance sql.NullFloat64
 	err := r.db.QueryRow(ctx,
-		`SELECT a.id, a.user_id, a.name, a.type, a.account_number, ab.balance, a.created_at, a.updated_at, a.currency
+		`SELECT a.id, a.user_id, a.name, a.type, COALESCE(a.provider, ''), a.account_number, ab.balance, a.created_at, a.updated_at, a.currency
 		 FROM accounts a
 		 LEFT JOIN account_balances ab ON ab.account_id = a.id
 		 WHERE a.id = $1 AND a.user_id = $2`,
 		accountID, userID,
-	).Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.AccountNumber, &balance, &a.CreatedAt, &a.UpdatedAt, &a.Currency)
+	).Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.Provider, &a.AccountNumber, &balance, &a.CreatedAt, &a.UpdatedAt, &a.Currency)
 
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -185,18 +185,18 @@ func (r *AccountsRepository) ExistsForUser(ctx context.Context, accountID, userI
 }
 
 // UpdateAccount updates account metadata (name, type, account_number, currency)
-func (r *AccountsRepository) UpdateAccount(ctx context.Context, accountID, userID int, name string, accountType string, accountNumber *string, currency string) (*models.Account, error) {
+func (r *AccountsRepository) UpdateAccount(ctx context.Context, accountID, userID int, name string, accountType, provider string, accountNumber *string, currency string) (*models.Account, error) {
 	log.Printf("[repo.accounts] UpdateAccount: account_id=%d user_id=%d name=%q type=%q currency=%q",
 		accountID, userID, name, accountType, currency)
 
 	var a models.Account
 	var balance sql.NullFloat64
 	err := r.db.QueryRow(ctx,
-		`UPDATE accounts SET name = $1, type = $2, account_number = $3, currency = $4, updated_at = NOW()
-		 WHERE id = $5 AND user_id = $6
-		 RETURNING id, user_id, name, type, account_number, created_at, updated_at, currency`,
-		name, accountType, accountNumber, currency, accountID, userID,
-	).Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.AccountNumber, &a.CreatedAt, &a.UpdatedAt, &a.Currency)
+		`UPDATE accounts SET name = $1, type = $2, provider = NULLIF($3, ''), account_number = $4, currency = $5, updated_at = NOW()
+		 WHERE id = $6 AND user_id = $7
+		 RETURNING id, user_id, name, type, COALESCE(provider, ''), account_number, created_at, updated_at, currency`,
+		name, accountType, provider, accountNumber, currency, accountID, userID,
+	).Scan(&a.ID, &a.UserID, &a.Name, &a.Type, &a.Provider, &a.AccountNumber, &a.CreatedAt, &a.UpdatedAt, &a.Currency)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			log.Printf("[repo.accounts] UpdateAccount: not found account_id=%d user_id=%d", accountID, userID)

@@ -9,6 +9,7 @@ type Account struct {
 	UserID        int       `json:"user_id"`
 	Name          string    `json:"name"`
 	Type          string    `json:"type"`
+	Provider      string    `json:"provider,omitempty"`
 	AccountNumber *string   `json:"account_number"`
 	Balance       float64   `json:"balance"` // sourced from account_balances table
 	CreatedAt     time.Time `json:"created_at"`
@@ -19,6 +20,7 @@ type Account struct {
 type AccountInput struct {
 	Name          string  `json:"name"`
 	Type          string  `json:"type"`
+	Provider      string  `json:"provider,omitempty"`
 	AccountNumber *string `json:"account_number"`
 	Balance       float64 `json:"balance"` // initial balance only; used when creating account
 	Currency      string  `json:"currency"`
