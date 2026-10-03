@@ -40,7 +40,7 @@ func (s *AuthService) Register(ctx context.Context, email, password, name string
 		return nil, "", apperr.Validation("password must be at least 8 characters")
 	}
 
-	hash, err := auth.HashPassword(password)
+	hash, err := auth.HashPassword(password, s.log)
 	if err != nil {
 		return nil, "", fmt.Errorf("hash password: %w", err)
 	}
@@ -68,7 +68,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*model
 	user, err := s.users.FindByEmail(ctx, email)
 	if err != nil {
 		// Deliberately the same error whether the email doesn't exist or
-		// the password is wrong — don't leak which one it was.
+		// the password is wrong don't leak which one it was.
 		s.log.WarnContext(ctx, "login failed", "email", email, "reason", "user not found")
 		return nil, "", apperr.ErrInvalidCredentials
 	}
@@ -113,7 +113,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, email, newPassword stri
 		return fmt.Errorf("reset password: find user %q: %w", email, err)
 	}
 
-	hash, err := auth.HashPassword(newPassword)
+	hash, err := auth.HashPassword(newPassword, s.log)
 	if err != nil {
 		return fmt.Errorf("reset password: hash password: %w", err)
 	}

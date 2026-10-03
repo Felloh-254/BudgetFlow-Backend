@@ -319,11 +319,10 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 			return nil, fmt.Errorf("select balance (account=%d): %w", e.AccountID, err)
 		}
 
-		if e.Amount < 0 && currentBalance+e.Amount < 0 {
-			return nil, apperr.Validation("insufficient funds")
-		}
-
 		newBalance := currentBalance + e.Amount
+		if newBalance < 0 {
+			return nil, apperr.ErrInsufficientFunds
+		}
 		s.log.DebugContext(ctx, "updating balance",
 			"transaction_id", createdTxn.ID,
 			"account_id", e.AccountID,
@@ -457,6 +456,9 @@ func (s *TransactionService) Delete(ctx context.Context, transactionID, userID i
 		}
 
 		newBalance := currentBalance - entry.Amount
+		if newBalance < 0 {
+			return apperr.ErrInsufficientFunds
+		}
 		s.log.DebugContext(ctx, "reversing ledger entry",
 			"transaction_id", transactionID,
 			"account_id", entry.AccountID,

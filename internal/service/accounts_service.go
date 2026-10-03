@@ -35,11 +35,16 @@ func (s *AccountsService) List(ctx context.Context, userID int) ([]models.Accoun
 }
 
 func (s *AccountsService) Create(ctx context.Context, userID int, in models.AccountInput) (*models.Account, error) {
+	var err error
+	in, err = normalizeAccountInput(in)
+	if err != nil {
+		return nil, err
+	}
 	if err := validateAccountInput(in); err != nil {
 		return nil, err
 	}
 
-	account, err := s.accounts.CreateAccount(ctx, userID, in.Name, in.Type, in.AccountNumber, in.Balance, in.Currency)
+	account, err := s.accounts.CreateAccount(ctx, userID, in.Name, in.Type, in.Provider, in.AccountNumber, in.Balance, in.Currency)
 	if err != nil {
 		return nil, fmt.Errorf("create account (user=%d): %w", userID, err)
 	}
@@ -55,11 +60,16 @@ func (s *AccountsService) Create(ctx context.Context, userID int, in models.Acco
 }
 
 func (s *AccountsService) Update(ctx context.Context, accountID, userID int, in models.AccountInput) (*models.Account, error) {
+	var err error
+	in, err = normalizeAccountInput(in)
+	if err != nil {
+		return nil, err
+	}
 	if err := validateAccountInput(in); err != nil {
 		return nil, err
 	}
 
-	account, err := s.accounts.UpdateAccount(ctx, accountID, userID, in.Name, in.Type, in.AccountNumber, in.Currency)
+	account, err := s.accounts.UpdateAccount(ctx, accountID, userID, in.Name, in.Type, in.Provider, in.AccountNumber, in.Currency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.ErrNotFound
 	}
@@ -99,6 +109,13 @@ func validateAccountInput(in models.AccountInput) error {
 	if !constants.AllowedAccountTypes[in.Type] {
 		return apperr.ErrUnsupportedAccountType
 	}
+	if in.Type == "mobile_money" {
+		if in.Provider != "" && !constants.AllowedMobileMoneyProviders[in.Provider] {
+			return apperr.ErrUnsupportedAccountType
+		}
+	} else if in.Provider != "" {
+		return apperr.ErrUnsupportedAccountType
+	}
 	if in.Balance < 0 {
 		return apperr.ErrInvalidBalance
 	}
@@ -109,4 +126,19 @@ func validateAccountInput(in models.AccountInput) error {
 		return apperr.ErrUnsupportedCurrency
 	}
 	return nil
+}
+
+// normalizeAccountInput keeps provider-specific mobile money labels compatible
+// with clients that send them as the account type.
+func normalizeAccountInput(in models.AccountInput) (models.AccountInput, error) {
+	switch in.Type {
+	case "mpesa", "airtel_money":
+		provider := in.Type
+		if in.Provider != "" && in.Provider != provider {
+			return in, apperr.ErrUnsupportedAccountType
+		}
+		in.Type = "mobile_money"
+		in.Provider = provider
+	}
+	return in, nil
 }
