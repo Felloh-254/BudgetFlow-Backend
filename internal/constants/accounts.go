@@ -1,7 +1,5 @@
 package constants
 
-import "log"
-
 var AllowedAccountTypes = map[string]bool{
 	"bank":         true,
 	"cash":         true,
@@ -9,14 +7,14 @@ var AllowedAccountTypes = map[string]bool{
 	"investment":   true,
 }
 
+var AllowedMobileMoneyProviders = map[string]bool{
+	"mpesa":        true,
+	"airtel_money": true,
+}
+
 var AllowedCurrencies = map[string]bool{
 	"KES": true,
 	"USD": true,
 	"EUR": true,
 	"GBP": true,
-}
-
-func init() {
-	log.Printf("[constants] AllowedAccountTypes loaded: %d types", len(AllowedAccountTypes))
-	log.Printf("[constants] AllowedCurrencies loaded: %d currencies", len(AllowedCurrencies))
 }
