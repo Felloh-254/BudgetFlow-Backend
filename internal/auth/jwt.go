@@ -17,13 +17,10 @@ type TokenManager struct {
 }
 
 func NewTokenManager(secret string, ttl time.Duration) *TokenManager {
-	log.Printf("[auth.jwt] NewTokenManager created: ttl=%s secret_length=%d", ttl, len(secret))
 	return &TokenManager{secret: []byte(secret), ttl: ttl}
 }
 
 func (m *TokenManager) Generate(userID int) (string, error) {
-	log.Printf("[auth.jwt] Generate: generating token for user_id=%d ttl=%s", userID, m.ttl)
-
 	claims := jwt.MapClaims{
 		"user_id": userID,
 		"iat":     time.Now().Unix(),
@@ -36,14 +33,11 @@ func (m *TokenManager) Generate(userID int) (string, error) {
 		return "", err
 	}
 
-	log.Printf("[auth.jwt] Generate: OK user_id=%d token_length=%d", userID, len(signed))
 	return signed, nil
 }
 
 // Parse validates the token and returns the embedded user ID.
 func (m *TokenManager) Parse(tokenStr string) (int, error) {
-	log.Printf("[auth.jwt] Parse: parsing token (length=%d)", len(tokenStr))
-
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			log.Printf("[auth.jwt] Parse: unexpected signing method: %v", t.Header["alg"])
@@ -69,6 +63,5 @@ func (m *TokenManager) Parse(tokenStr string) (int, error) {
 	}
 
 	userID := int(uidFloat)
-	log.Printf("[auth.jwt] Parse: OK user_id=%d", userID)
 	return userID, nil
 }

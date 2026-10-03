@@ -5,7 +5,6 @@ package apperr
 
 import (
 	"errors"
-	"log"
 )
 
 var (
@@ -14,6 +13,7 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrValidation         = errors.New("validation failed")
 	ErrForbidden          = errors.New("forbidden")
+	ErrInsufficientFunds  = errors.New("insufficient funds")
 
 	ErrInvalidAccountName     = errors.New("invalid account name")
 	ErrInvalidAccountType     = errors.New("invalid account type")
@@ -34,6 +34,5 @@ func (e *ValidationError) Unwrap() error { return ErrValidation }
 
 // Validation is a convenience constructor for a ValidationError.
 func Validation(msg string) error {
-	log.Printf("[apperr] Validation error created: %s", msg)
 	return &ValidationError{Message: msg}
 }

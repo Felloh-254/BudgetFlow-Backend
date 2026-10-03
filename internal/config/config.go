@@ -27,7 +27,7 @@ type Config struct {
 func Load() *Config {
 	// The configured logger doesn't exist yet (it needs this config), so
 	// this package uses the stdlib log.
-	if err := godotenv.Load("../../.env"); err != nil {
+	if err := godotenv.Load(".env"); err != nil {
 		log.Println("[config] no .env file found, relying on environment variables")
 	}
 
