@@ -42,7 +42,7 @@ func run() error {
 
 	// Logger is built once here and injected everywhere.
 	base := logger.New(cfg.LogLevel, cfg.LogFormat)
-	slog.SetDefault(base) // also routes stdlib log.Printf through slog
+	slog.SetDefault(base)
 	base.Info("starting app")
 
 	// ctx is cancelled on Ctrl+C / SIGTERM and drives all shutdown.
@@ -82,7 +82,7 @@ func run() error {
 	recurringService := service.NewRecurringService(recurringRepo, categoryRepo, transactionService, base)
 
 	// Handlers (HTTP)
-	authHandler := handler.NewAuthHandler(authService)
+	authHandler := handler.NewAuthHandler(authService, base)
 	budgetHandler := handler.NewBudgetHandler(budgetService)
 	categoryHandler := handler.NewCategoryHandler(categoryService)
 	transactionHandler := handler.NewTransactionHandler(transactionService)
@@ -93,14 +93,16 @@ func run() error {
 
 	e := echo.New()
 	e.HideBanner = true
+	e.HTTPErrorHandler = handler.HTTPErrorHandler
 
 	routes.RegisterMiddleware(e)
 	routes.RegisterHealthCheck(e)
-	routes.RegisterSwaggerUI(e)
+	routes.RegisterSwaggerUI(e, base)
 	routes.RegisterPublicRoutes(e, authHandler)
 	routes.RegisterProtectedRoutes(
 		e,
 		tokens,
+		base,
 		authHandler,
 		budgetHandler,
 		accountHandler,

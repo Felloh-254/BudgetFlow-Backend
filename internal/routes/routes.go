@@ -2,7 +2,7 @@
 package routes
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,19 +19,16 @@ func RegisterPublicRoutes(
 	e *echo.Echo,
 	authHandler *handler.AuthHandler,
 ) {
-	log.Println("[routes] RegisterPublicRoutes: registering public routes")
-
 	e.POST("/api/auth/register", authHandler.Register)
 	e.POST("/api/auth/login", authHandler.Login)
 	e.PUT("/api/password/reset", authHandler.ResetPassword)
 	e.POST("/api/forgot-password", authHandler.ForgotPassword)
-
-	log.Println("[routes] RegisterPublicRoutes: OK (4 routes)")
 }
 
 func RegisterProtectedRoutes(
 	e *echo.Echo,
 	tokens *auth.TokenManager,
+	logger *slog.Logger,
 	authHandler *handler.AuthHandler,
 	budgetHandler *handler.BudgetHandler,
 	accountHandler *handler.AccountHandler,
@@ -41,9 +38,7 @@ func RegisterProtectedRoutes(
 	goalHandler *handler.GoalHandler,
 	recurringHandler *handler.RecurringHandler,
 ) {
-	log.Println("[routes] RegisterProtectedRoutes: registering protected routes")
-
-	api := e.Group("/api", appmw.JWT(tokens))
+	api := e.Group("/api", appmw.JWT(tokens, logger))
 
 	api.GET("/me", authHandler.Me)
 
@@ -90,13 +85,9 @@ func RegisterProtectedRoutes(
 	api.POST("/recurring/:id/resume", recurringHandler.SetActive(true))
 	api.DELETE("/recurring/:id", recurringHandler.Delete)
 	api.POST("/recurring/run", recurringHandler.RunDue)
-
-	log.Println("[routes] RegisterProtectedRoutes: OK (33 routes)")
 }
 
 func RegisterMiddleware(e *echo.Echo) {
-	log.Println("[routes] RegisterMiddleware: registering global middleware")
-
 	e.Use(middleware.RequestID())
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
@@ -115,41 +106,39 @@ func RegisterMiddleware(e *echo.Echo) {
 			echo.HeaderAuthorization,
 			"Idempotency-Key",
 		},
+		ExposeHeaders:    []string{echo.HeaderXRequestID},
 		AllowCredentials: true,
 	}))
-
-	log.Println("[routes] RegisterMiddleware: OK (RequestID, Logger, Recover, CORS)")
 }
 
 func RegisterHealthCheck(e *echo.Echo) {
-	log.Println("[routes] RegisterHealthCheck: registering /healthz")
-
 	e.GET("/healthz", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, echo.Map{"status": "ok"})
 	})
 }
 
-func RegisterSwaggerUI(e *echo.Echo) {
-	log.Println("[routes] RegisterSwaggerUI: registering swagger docs routes")
-
+func RegisterSwaggerUI(e *echo.Echo, logger *slog.Logger) {
 	e.GET("/test-swagger-init", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, echo.Map{"message": "RegisterSwaggerUI was called"})
 	})
 
 	wd, err := os.Getwd()
 	if err != nil {
-		log.Printf("[routes] RegisterSwaggerUI: failed to get working directory: %v", err)
+		logger.Warn("[routes] RegisterSwaggerUI: failed to get working directory",
+			"error", err,
+		)
 		panic(err)
 	}
 
 	docsPath := filepath.Join(wd, "docs")
-	log.Printf("[routes] RegisterSwaggerUI: docs path=%s", docsPath)
 
 	serveDocs := func(c echo.Context) error {
 		indexPath := filepath.Join(docsPath, "index.html")
-		log.Printf("[routes] RegisterSwaggerUI: serving docs from=%s", indexPath)
 		if _, err := os.Stat(indexPath); err != nil {
-			log.Printf("[routes] RegisterSwaggerUI: file not found path=%s error=%v", indexPath, err)
+			logger.Warn("[routes] RegisterSwaggerUI: file not found",
+				"path", indexPath,
+				"error", err,
+			)
 			return c.JSON(http.StatusNotFound, echo.Map{"error": "file not found", "path": indexPath})
 		}
 		return c.File(indexPath)
@@ -163,12 +152,10 @@ func RegisterSwaggerUI(e *echo.Echo) {
 	serveSwaggerSpec := func(c echo.Context) error {
 		c.Response().Header().Set(echo.HeaderContentType, "application/x-yaml; charset=UTF-8")
 		yamlPath := filepath.Join(docsPath, "swagger.yaml")
-		log.Printf("[routes] RegisterSwaggerUI: serving swagger spec from=%s", yamlPath)
 		return c.File(yamlPath)
 	}
 
 	e.GET("/docs/swagger.yaml", serveSwaggerSpec)
 	e.GET("/api-docs/swagger.yaml", serveSwaggerSpec)
 
-	log.Println("[routes] RegisterSwaggerUI: OK")
 }
