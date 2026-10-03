@@ -50,7 +50,7 @@ func run() error {
 	defer stop()
 
 	// Database pool
-	pool, err := database.NewPool(cfg.DatabaseURL)
+	pool, err := database.NewPool(cfg.DatabaseURL, base)
 	if err != nil {
 		return fmt.Errorf("database connection failed: %w", err)
 	}
