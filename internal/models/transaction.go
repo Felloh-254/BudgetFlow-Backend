@@ -11,6 +11,7 @@ type Transaction struct {
 	Type            string    `json:"type"` // "income" | "expense" | "transfer"
 	Title           string    `json:"title"`
 	Amount          float64   `json:"amount"`
+	TrxCost         float64   `json:"transaction_cost"`
 	Category        string    `json:"category,omitempty"`
 	CategoryID      *int      `json:"category_id,omitempty"`
 	AccountID       *int      `json:"account_id,omitempty"`
@@ -69,6 +70,7 @@ type TransactionDetail struct {
 type TransactionInput struct {
 	Title     string  `json:"title"`
 	Amount    float64 `json:"amount"`
+	TrxCost   float64 `json:"transaction_cost"`
 	Type      string  `json:"type"` // "income" | "expense"
 	Category  string  `json:"category"`
 	AccountID int     `json:"account_id"`
@@ -83,6 +85,7 @@ type TransactionInput struct {
 type TransferInput struct {
 	Title         string  `json:"title"`
 	Amount        float64 `json:"amount"`
+	TrxCost       float64 `json:"transaction_cost"`
 	FromAccountID int     `json:"from_account_id"`
 	ToAccountID   int     `json:"to_account_id"`
 	Date          string  `json:"date"`

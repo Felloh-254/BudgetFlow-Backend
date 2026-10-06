@@ -841,8 +841,8 @@ paths:
   /api/transactions/expense:
     post:
       summary: Record expense transaction
-      description: Records money leaving an account, creating a double-entry credit
-        ledger entry
+      description: Records an expense and optional transaction cost. Both are deducted
+        from the account; amount in the response remains the expense principal.
       tags:
       - Transactions
       security:
@@ -881,7 +881,8 @@ paths:
   /api/transactions/transfer:
     post:
       summary: Record transfer transaction
-      description: Records money moving between two accounts (2-sided ledger transaction)
+      description: Records money moving between two accounts. Optional transaction_cost
+        is additionally deducted from the source account and is not credited to the destination.
       tags:
       - Transactions
       security:
@@ -1018,6 +1019,10 @@ components:
           type: number
           format: float
           example: 3500.0
+        transaction_cost:
+          type: number
+          format: float
+          example: 25.0
         category:
           type: string
           example: Dining
@@ -1288,6 +1293,14 @@ components:
           type: number
           format: float
           example: 75.5
+          description: Expense or income principal, excluding any transaction cost.
+        transaction_cost:
+          type: number
+          format: float
+          minimum: 0
+          default: 0
+          example: 15
+          description: Optional cost deducted in addition to the amount for expenses; must be zero for income.
         type:
           type: string
           enum:
@@ -1342,6 +1355,14 @@ components:
           type: number
           format: float
           example: 5000.0
+          description: Amount credited to the destination account, excluding transaction cost.
+        transaction_cost:
+          type: number
+          format: float
+          minimum: 0
+          default: 0
+          example: 25
+          description: Optional cost deducted additionally from the source account.
         from_account_id:
           type: integer
           example: 1

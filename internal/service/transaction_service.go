@@ -169,12 +169,14 @@ func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in m
 	}
 
 	return s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
-		Type:  "expense",
-		Title: strings.TrimSpace(in.Title),
-		Date:  in.Date,
-		Note:  in.Note,
+		Type:    "expense",
+		Title:   strings.TrimSpace(in.Title),
+		Amount:  in.Amount,
+		TrxCost: in.TrxCost,
+		Date:    in.Date,
+		Note:    in.Note,
 	}, []ledgerLine{
-		{AccountID: in.AccountID, Amount: -in.Amount, EntryType: "credit"},
+		{AccountID: in.AccountID, Amount: -(in.Amount + in.TrxCost), EntryType: "credit"},
 	}, []int{cat.ID}, idempotencyKey)
 }
 
@@ -194,12 +196,14 @@ func (s *TransactionService) CreateTransfer(ctx context.Context, userID int, in 
 	}
 
 	return s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
-		Type:  "transfer",
-		Title: strings.TrimSpace(in.Title),
-		Date:  in.Date,
-		Note:  in.Note,
+		Type:    "transfer",
+		Title:   strings.TrimSpace(in.Title),
+		Amount:  in.Amount,
+		TrxCost: in.TrxCost,
+		Date:    in.Date,
+		Note:    in.Note,
 	}, []ledgerLine{
-		{AccountID: in.FromAccountID, Amount: -in.Amount, EntryType: "credit"},
+		{AccountID: in.FromAccountID, Amount: -(in.Amount + in.TrxCost), EntryType: "credit"},
 		{AccountID: in.ToAccountID, Amount: in.Amount, EntryType: "debit"},
 	}, []int{}, idempotencyKey)
 }
@@ -266,12 +270,12 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 	}
 
 	err = tx.QueryRow(ctx,
-		`INSERT INTO transactions_v2 (user_id, type, title, date, note, idempotency_key)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO transactions_v2 (user_id, type, title, date, note, transaction_cost, idempotency_key)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 ON CONFLICT (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
-		 RETURNING id, user_id, type, title, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at`,
-		userID, txn.Type, txn.Title, txn.Date, txn.Note, idempotencyKeyParam,
-	).Scan(&createdTxn.ID, &createdTxn.UserID, &createdTxn.Type, &createdTxn.Title, &createdTxn.Date, &createdTxn.Note, &idempKey, &createdTxn.CreatedAt, &createdTxn.UpdatedAt)
+		 RETURNING id, user_id, type, title, transaction_cost, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at`,
+		userID, txn.Type, txn.Title, txn.Date, txn.Note, txn.TrxCost, idempotencyKeyParam,
+	).Scan(&createdTxn.ID, &createdTxn.UserID, &createdTxn.Type, &createdTxn.Title, &createdTxn.TrxCost, &createdTxn.Date, &createdTxn.Note, &idempKey, &createdTxn.CreatedAt, &createdTxn.UpdatedAt)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Another request with the same key won the race.
@@ -524,8 +528,14 @@ func (s *TransactionService) validateTransactionInput(in models.TransactionInput
 	if in.Amount <= 0 {
 		return apperr.Validation("amount must be greater than 0")
 	}
+	if in.TrxCost < 0 {
+		return apperr.Validation("transaction_cost must not be negative")
+	}
 	if in.Type != expectedType {
 		return apperr.Validation("type must be '" + expectedType + "'")
+	}
+	if expectedType == "income" && in.TrxCost != 0 {
+		return apperr.Validation("transaction_cost is only supported for expenses and transfers")
 	}
 	if strings.TrimSpace(in.Category) == "" {
 		return apperr.Validation("category is required")
@@ -548,6 +558,9 @@ func (s *TransactionService) validateTransferInput(in models.TransferInput) erro
 	}
 	if in.Amount <= 0 {
 		return apperr.Validation("amount must be greater than 0")
+	}
+	if in.TrxCost < 0 {
+		return apperr.Validation("transaction_cost must not be negative")
 	}
 	return nil
 }

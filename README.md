@@ -102,6 +102,7 @@ Protected endpoints require `Authorization: Bearer <token>`:
 - `GET /api/summary` - financial summary
 
 Transaction creation is intentionally split by type. Amounts are supplied as positive values; the API determines the ledger direction from the transaction type.
+Expense and transfer requests also accept an optional non-negative `transaction_cost`. For expenses it is deducted in addition to the expense amount; for transfers it is deducted from the source account without changing the amount received by the destination. Income requests should omit this field or set it to zero.
 
 ## Project Structure
 

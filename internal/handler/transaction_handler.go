@@ -236,9 +236,6 @@ func (h *TransactionHandler) CreateExpense(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
 
-	log.Printf("[handler.transaction] CreateExpense: bound input user_id=%d title=%q amount=%.2f account_id=%d category=%q date=%q",
-		userID, in.Title, in.Amount, in.AccountID, in.Category, in.Date)
-
 	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
 	if idempotencyKey == "" {
 		log.Printf("[handler.transaction] CreateExpense: missing Idempotency-Key header user_id=%d", userID)
@@ -248,9 +245,6 @@ func (h *TransactionHandler) CreateExpense(c echo.Context) error {
 	}
 
 	in.Type = "expense"
-
-	log.Printf("[handler.transaction] CreateExpense: calling service user_id=%d req_id=%s idempotency_key=%s amount=%.2f account_id=%d title=%q",
-		userID, reqID, idempotencyKey, in.Amount, in.AccountID, in.Title)
 
 	detail, err := h.transactions.CreateExpense(c.Request().Context(), userID, in, idempotencyKey)
 	if err != nil {
@@ -278,9 +272,6 @@ func (h *TransactionHandler) CreateTransfer(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
 	}
 
-	log.Printf("[handler.transaction] CreateTransfer: bound input user_id=%d title=%q amount=%.2f from=%d to=%d date=%q",
-		userID, in.Title, in.Amount, in.FromAccountID, in.ToAccountID, in.Date)
-
 	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
 	if idempotencyKey == "" {
 		log.Printf("[handler.transaction] CreateTransfer: missing Idempotency-Key header user_id=%d", userID)
@@ -296,8 +287,6 @@ func (h *TransactionHandler) CreateTransfer(c echo.Context) error {
 		return respondError(c, err)
 	}
 
-	log.Printf("[handler.transaction] CreateTransfer: DONE user_id=%d req_id=%s transaction_id=%d amount=%.2f from=%d to=%d",
-		userID, reqID, detail.Transaction.ID, in.Amount, in.FromAccountID, in.ToAccountID)
 	return c.JSON(http.StatusCreated, detail)
 }
 
