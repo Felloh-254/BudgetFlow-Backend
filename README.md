@@ -108,7 +108,6 @@ Expense and transfer requests also accept an optional non-negative `transaction_
 
 ```text
 cmd/api/              Application entry point and dependency wiring
-cmd/migrate-data/     One-time legacy SQLite-to-PostgreSQL migration
 internal/config/      Environment configuration
 internal/routes/      Public and protected route registration
 internal/handler/     HTTP request and response handling
@@ -129,11 +128,8 @@ make run            # start the API
 make build          # build bin/api
 make migrate-up    # apply all pending migrations
 make migrate-down  # roll back the latest migration
-make migrate-data  # import legacy budget.db data once
 make tidy           # normalize Go dependencies
 ```
-
-Run `migrate-data` only after applying the migrations to the target PostgreSQL database. It expects the legacy SQLite file at `./budget.db`.
 
 ## Database Migrations
 

@@ -1,4 +1,4 @@
-.PHONY: run build migrate-up migrate-down migrate-data tidy
+.PHONY: run build migrate-up migrate-down tidy
 
 run:
 	go run ./cmd/api
@@ -15,8 +15,3 @@ migrate-up:
 
 migrate-down:
 	migrate -path migrations -database "$$DATABASE_URL" down 1
-
-# One-time: copy data from the old SQLite budget.db into Postgres.
-# Run migrate-up against the target DB first.
-migrate-data:
-	go run ./cmd/migrate-data ./budget.db

@@ -16,12 +16,6 @@ bin/
 *.out
 vendor/
 
-# Old SQLite artifacts (pre-migration)
-*.db
-*.db-journal
-*.db-shm
-*.db-wal
-
 # IDE
 .idea/
 .vscode/
