@@ -99,6 +99,48 @@ func (r *AccountBalanceRepository) UpdateBalance(ctx context.Context, accountID 
 	return success, nil
 }
 
+// GetBalanceForUpdateTx loads and locks an account balance using the caller's transaction.
+func (r *AccountBalanceRepository) GetBalanceForUpdateTx(ctx context.Context, tx pgx.Tx, accountID int) (float64, int, error) {
+	var balance float64
+	var version int
+	err := tx.QueryRow(ctx,
+		`SELECT balance, version FROM account_balances WHERE account_id = $1 FOR UPDATE`,
+		accountID,
+	).Scan(&balance, &version)
+	return balance, version, err
+}
+
+// UpdateBalanceTx writes a balance and transaction reference atomically.
+func (r *AccountBalanceRepository) UpdateBalanceTx(ctx context.Context, tx pgx.Tx, accountID int, newBalance float64, transactionID, version int) (bool, error) {
+	result, err := tx.Exec(ctx,
+		`UPDATE account_balances
+		 SET balance = $1, last_updated_txn = $2, version = version + 1, updated_at = now()
+		 WHERE account_id = $3 AND version = $4`,
+		newBalance, transactionID, accountID, version,
+	)
+	if err != nil {
+		return false, err
+	}
+	return result.RowsAffected() > 0, nil
+}
+
+// ReverseBalanceTx restores a balance and clears its transaction reference when appropriate.
+func (r *AccountBalanceRepository) ReverseBalanceTx(ctx context.Context, tx pgx.Tx, accountID int, newBalance float64, transactionID, version int) (bool, error) {
+	result, err := tx.Exec(ctx,
+		`UPDATE account_balances
+		 SET balance = $1,
+		     last_updated_txn = CASE WHEN last_updated_txn = $4 THEN NULL ELSE last_updated_txn END,
+		     version = version + 1,
+		     updated_at = now()
+		 WHERE account_id = $2 AND version = $3`,
+		newBalance, accountID, version, transactionID,
+	)
+	if err != nil {
+		return false, err
+	}
+	return result.RowsAffected() > 0, nil
+}
+
 // RecalculateBalance recalculates balance from ledger entries (for reconciliation)
 func (r *AccountBalanceRepository) RecalculateBalance(ctx context.Context, accountID int, ledgerRepo *LedgerRepository) (*models.AccountBalance, error) {
 	log.Printf("[repo.account_balance] RecalculateBalance: account_id=%d", accountID)

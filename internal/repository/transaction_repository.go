@@ -186,6 +186,57 @@ func (r *TransactionRepository) Create(ctx context.Context, userID int, txnType,
 	return &t, nil
 }
 
+// GetIDByIdempotencyKeyTx finds a transaction using the caller's transaction.
+func (r *TransactionRepository) GetIDByIdempotencyKeyTx(ctx context.Context, tx pgx.Tx, userID int, idempotencyKey string) (int, error) {
+	var transactionID int
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM transactions_v2 WHERE idempotency_key = $1 AND user_id = $2 LIMIT 1`,
+		idempotencyKey, userID,
+	).Scan(&transactionID)
+	return transactionID, err
+}
+
+// CreateTx inserts a transaction using the caller's transaction.
+func (r *TransactionRepository) CreateTx(ctx context.Context, tx pgx.Tx, userID int, txn models.Transaction, idempotencyKey string) (int, error) {
+	var idempotencyKeyParam any
+	if idempotencyKey != "" {
+		idempotencyKeyParam = idempotencyKey
+	}
+
+	var transactionID int
+	err := tx.QueryRow(ctx,
+		`INSERT INTO transactions_v2 (user_id, type, title, date, note, transaction_cost, idempotency_key)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 ON CONFLICT (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+		 RETURNING id`,
+		userID, txn.Type, txn.Title, txn.Date, txn.Note, txn.TrxCost, idempotencyKeyParam,
+	).Scan(&transactionID)
+	return transactionID, err
+}
+
+// AddCategoryTx associates a category using the caller's transaction.
+func (r *TransactionRepository) AddCategoryTx(ctx context.Context, tx pgx.Tx, transactionID, categoryID int) error {
+	_, err := tx.Exec(ctx,
+		`INSERT INTO transaction_categories (transaction_id, category_id)
+		 VALUES ($1, $2)
+		 ON CONFLICT (transaction_id, category_id) DO NOTHING`,
+		transactionID, categoryID,
+	)
+	return err
+}
+
+// DeleteTx removes a transaction using the caller's transaction.
+func (r *TransactionRepository) DeleteTx(ctx context.Context, tx pgx.Tx, transactionID, userID int) (bool, error) {
+	result, err := tx.Exec(ctx,
+		`DELETE FROM transactions_v2 WHERE id = $1 AND user_id = $2`,
+		transactionID, userID,
+	)
+	if err != nil {
+		return false, err
+	}
+	return result.RowsAffected() > 0, nil
+}
+
 // GetByID retrieves a single transaction by ID with enriched details
 func (r *TransactionRepository) GetByID(ctx context.Context, transactionID, userID int) (*models.Transaction, error) {
 	log.Printf("[repo.transaction] GetByID: transaction_id=%d user_id=%d", transactionID, userID)

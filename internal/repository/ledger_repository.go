@@ -43,6 +43,16 @@ func (r *LedgerRepository) CreateLedgerEntry(ctx context.Context, transactionID,
 	return &entry, nil
 }
 
+// CreateLedgerEntryTx inserts a ledger entry using the caller's transaction.
+func (r *LedgerRepository) CreateLedgerEntryTx(ctx context.Context, tx pgx.Tx, transactionID, accountID int, amount float64, entryType string) error {
+	_, err := tx.Exec(ctx,
+		`INSERT INTO ledger_entries (transaction_id, account_id, amount, entry_type)
+		 VALUES ($1, $2, $3, $4)`,
+		transactionID, accountID, amount, entryType,
+	)
+	return err
+}
+
 // ListByTransaction returns all ledger entries for a transaction
 func (r *LedgerRepository) ListByTransaction(ctx context.Context, transactionID int) ([]models.LedgerEntry, error) {
 	log.Printf("[repo.ledger] ListByTransaction: transaction_id=%d", transactionID)
@@ -71,6 +81,31 @@ func (r *LedgerRepository) ListByTransaction(ctx context.Context, transactionID 
 	}
 
 	log.Printf("[repo.ledger] ListByTransaction: OK transaction_id=%d count=%d", transactionID, len(entries))
+	return entries, rows.Err()
+}
+
+// ListByTransactionTx returns transaction entries using the caller's transaction.
+func (r *LedgerRepository) ListByTransactionTx(ctx context.Context, tx pgx.Tx, transactionID int) ([]models.LedgerEntry, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT id, transaction_id, account_id, amount, entry_type, created_at
+		 FROM ledger_entries
+		 WHERE transaction_id = $1
+		 ORDER BY created_at ASC`,
+		transactionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	entries := []models.LedgerEntry{}
+	for rows.Next() {
+		var entry models.LedgerEntry
+		if err := rows.Scan(&entry.ID, &entry.TransactionID, &entry.AccountID, &entry.Amount, &entry.EntryType, &entry.CreatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
 	return entries, rows.Err()
 }
 
@@ -140,6 +175,12 @@ func (r *LedgerRepository) DeleteByTransaction(ctx context.Context, transactionI
 
 	log.Printf("[repo.ledger] DeleteByTransaction: OK transaction_id=%d", transactionID)
 	return nil
+}
+
+// DeleteByTransactionTx removes all transaction entries using the caller's transaction.
+func (r *LedgerRepository) DeleteByTransactionTx(ctx context.Context, tx pgx.Tx, transactionID int) error {
+	_, err := tx.Exec(ctx, `DELETE FROM ledger_entries WHERE transaction_id = $1`, transactionID)
+	return err
 }
 
 // GetByTransactionAndAccount retrieves a specific ledger entry
