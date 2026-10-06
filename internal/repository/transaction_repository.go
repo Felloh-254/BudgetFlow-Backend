@@ -27,6 +27,7 @@ const enrichedTransactionSelect = `
 		t.user_id, 
 		t.type, 
 		t.title, 
+		t.transaction_cost,
 		to_char(t.date, 'YYYY-MM-DD') as date, 
 		t.note, 
 		t.idempotency_key, 
@@ -36,7 +37,7 @@ const enrichedTransactionSelect = `
 			MAX(CASE WHEN t.type = 'transfer' AND le.amount > 0 THEN le.amount
 			         WHEN t.type != 'transfer' THEN ABS(le.amount)
 			    END), 0
-		) as amount,
+		) - CASE WHEN t.type = 'expense' THEN t.transaction_cost ELSE 0 END as amount,
 		COALESCE(MAX(c.name), '') as category,
 		MAX(c.id) as category_id,
 		MAX(CASE WHEN t.type != 'transfer' THEN a.id END) as account_id,
@@ -57,7 +58,7 @@ func scanEnrichedTransaction(row interface{ Scan(dest ...any) error }) (*models.
 	var idempKey sql.NullString
 	var catID, accID, fromAccID, toAccID sql.NullInt64
 	err := row.Scan(
-		&t.ID, &t.UserID, &t.Type, &t.Title, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt,
+		&t.ID, &t.UserID, &t.Type, &t.Title, &t.TrxCost, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt,
 		&t.Amount, &t.Category, &catID, &accID, &t.AccountName,
 		&fromAccID, &t.FromAccountName, &toAccID, &t.ToAccountName,
 	)
@@ -168,9 +169,9 @@ func (r *TransactionRepository) Create(ctx context.Context, userID int, txnType,
 	err := r.db.QueryRow(ctx,
 		`INSERT INTO transactions_v2 (user_id, type, title, date, note, idempotency_key)
 		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, user_id, type, title, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at`,
+		 RETURNING id, user_id, type, title, transaction_cost, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at`,
 		userID, txnType, title, date, note, idempotencyKey,
-	).Scan(&t.ID, &t.UserID, &t.Type, &t.Title, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.UserID, &t.Type, &t.Title, &t.TrxCost, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt)
 
 	if err != nil {
 		log.Printf("[repo.transaction] Create: FAILED user_id=%d error=%v", userID, err)
@@ -183,6 +184,57 @@ func (r *TransactionRepository) Create(ctx context.Context, userID int, txnType,
 
 	log.Printf("[repo.transaction] Create: OK transaction_id=%d user_id=%d type=%s", t.ID, t.UserID, t.Type)
 	return &t, nil
+}
+
+// GetIDByIdempotencyKeyTx finds a transaction using the caller's transaction.
+func (r *TransactionRepository) GetIDByIdempotencyKeyTx(ctx context.Context, tx pgx.Tx, userID int, idempotencyKey string) (int, error) {
+	var transactionID int
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM transactions_v2 WHERE idempotency_key = $1 AND user_id = $2 LIMIT 1`,
+		idempotencyKey, userID,
+	).Scan(&transactionID)
+	return transactionID, err
+}
+
+// CreateTx inserts a transaction using the caller's transaction.
+func (r *TransactionRepository) CreateTx(ctx context.Context, tx pgx.Tx, userID int, txn models.Transaction, idempotencyKey string) (int, error) {
+	var idempotencyKeyParam any
+	if idempotencyKey != "" {
+		idempotencyKeyParam = idempotencyKey
+	}
+
+	var transactionID int
+	err := tx.QueryRow(ctx,
+		`INSERT INTO transactions_v2 (user_id, type, title, date, note, transaction_cost, idempotency_key)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 ON CONFLICT (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+		 RETURNING id`,
+		userID, txn.Type, txn.Title, txn.Date, txn.Note, txn.TrxCost, idempotencyKeyParam,
+	).Scan(&transactionID)
+	return transactionID, err
+}
+
+// AddCategoryTx associates a category using the caller's transaction.
+func (r *TransactionRepository) AddCategoryTx(ctx context.Context, tx pgx.Tx, transactionID, categoryID int) error {
+	_, err := tx.Exec(ctx,
+		`INSERT INTO transaction_categories (transaction_id, category_id)
+		 VALUES ($1, $2)
+		 ON CONFLICT (transaction_id, category_id) DO NOTHING`,
+		transactionID, categoryID,
+	)
+	return err
+}
+
+// DeleteTx removes a transaction using the caller's transaction.
+func (r *TransactionRepository) DeleteTx(ctx context.Context, tx pgx.Tx, transactionID, userID int) (bool, error) {
+	result, err := tx.Exec(ctx,
+		`DELETE FROM transactions_v2 WHERE id = $1 AND user_id = $2`,
+		transactionID, userID,
+	)
+	if err != nil {
+		return false, err
+	}
+	return result.RowsAffected() > 0, nil
 }
 
 // GetByID retrieves a single transaction by ID with enriched details
@@ -214,11 +266,11 @@ func (r *TransactionRepository) GetByIdempotencyKey(ctx context.Context, key str
 	var t models.Transaction
 	var idempKey sql.NullString
 	err := r.db.QueryRow(ctx,
-		`SELECT id, user_id, type, title, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at
+		`SELECT id, user_id, type, title, transaction_cost, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at
 		 FROM transactions_v2
 		 WHERE idempotency_key = $1`,
 		key,
-	).Scan(&t.ID, &t.UserID, &t.Type, &t.Title, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.UserID, &t.Type, &t.Title, &t.TrxCost, &t.Date, &t.Note, &idempKey, &t.CreatedAt, &t.UpdatedAt)
 
 	if err != nil {
 		if err == pgx.ErrNoRows {

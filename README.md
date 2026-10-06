@@ -102,12 +102,12 @@ Protected endpoints require `Authorization: Bearer <token>`:
 - `GET /api/summary` - financial summary
 
 Transaction creation is intentionally split by type. Amounts are supplied as positive values; the API determines the ledger direction from the transaction type.
+Expense and transfer requests also accept an optional non-negative `transaction_cost`. For expenses it is deducted in addition to the expense amount; for transfers it is deducted from the source account without changing the amount received by the destination. Income requests should omit this field or set it to zero.
 
 ## Project Structure
 
 ```text
 cmd/api/              Application entry point and dependency wiring
-cmd/migrate-data/     One-time legacy SQLite-to-PostgreSQL migration
 internal/config/      Environment configuration
 internal/routes/      Public and protected route registration
 internal/handler/     HTTP request and response handling
@@ -128,11 +128,8 @@ make run            # start the API
 make build          # build bin/api
 make migrate-up    # apply all pending migrations
 make migrate-down  # roll back the latest migration
-make migrate-data  # import legacy budget.db data once
 make tidy           # normalize Go dependencies
 ```
-
-Run `migrate-data` only after applying the migrations to the target PostgreSQL database. It expects the legacy SQLite file at `./budget.db`.
 
 ## Database Migrations
 

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -169,12 +168,14 @@ func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in m
 	}
 
 	return s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
-		Type:  "expense",
-		Title: strings.TrimSpace(in.Title),
-		Date:  in.Date,
-		Note:  in.Note,
+		Type:    "expense",
+		Title:   strings.TrimSpace(in.Title),
+		Amount:  in.Amount,
+		TrxCost: in.TrxCost,
+		Date:    in.Date,
+		Note:    in.Note,
 	}, []ledgerLine{
-		{AccountID: in.AccountID, Amount: -in.Amount, EntryType: "credit"},
+		{AccountID: in.AccountID, Amount: -(in.Amount + in.TrxCost), EntryType: "credit"},
 	}, []int{cat.ID}, idempotencyKey)
 }
 
@@ -194,12 +195,14 @@ func (s *TransactionService) CreateTransfer(ctx context.Context, userID int, in 
 	}
 
 	return s.createTransactionWithLedgerEntries(ctx, userID, models.Transaction{
-		Type:  "transfer",
-		Title: strings.TrimSpace(in.Title),
-		Date:  in.Date,
-		Note:  in.Note,
+		Type:    "transfer",
+		Title:   strings.TrimSpace(in.Title),
+		Amount:  in.Amount,
+		TrxCost: in.TrxCost,
+		Date:    in.Date,
+		Note:    in.Note,
 	}, []ledgerLine{
-		{AccountID: in.FromAccountID, Amount: -in.Amount, EntryType: "credit"},
+		{AccountID: in.FromAccountID, Amount: -(in.Amount + in.TrxCost), EntryType: "credit"},
 		{AccountID: in.ToAccountID, Amount: in.Amount, EntryType: "debit"},
 	}, []int{}, idempotencyKey)
 }
@@ -237,14 +240,13 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 	}
 	defer tx.Rollback(ctx)
 
-	// Fast-path idempotency check
+	var transactionID int
 	if idempotencyKey != "" {
-		var existingID int
-		err := tx.QueryRow(ctx,
-			`SELECT id FROM transactions_v2 WHERE idempotency_key = $1 AND user_id = $2 LIMIT 1`,
-			idempotencyKey, userID,
-		).Scan(&existingID)
+		existingID, err := s.transactions.GetIDByIdempotencyKeyTx(ctx, tx, userID, idempotencyKey)
 		if err == nil {
+			if err := tx.Commit(ctx); err != nil {
+				return nil, fmt.Errorf("commit idempotent replay (transaction=%d): %w", existingID, err)
+			}
 			s.log.InfoContext(ctx, "idempotent replay, returning existing transaction",
 				"user_id", userID,
 				"idempotency_key", idempotencyKey,
@@ -257,21 +259,7 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 		}
 	}
 
-	var createdTxn models.Transaction
-	var idempKey sql.NullString
-
-	var idempotencyKeyParam interface{}
-	if idempotencyKey != "" {
-		idempotencyKeyParam = idempotencyKey
-	}
-
-	err = tx.QueryRow(ctx,
-		`INSERT INTO transactions_v2 (user_id, type, title, date, note, idempotency_key)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
-		 RETURNING id, user_id, type, title, to_char(date, 'YYYY-MM-DD'), note, idempotency_key, created_at, updated_at`,
-		userID, txn.Type, txn.Title, txn.Date, txn.Note, idempotencyKeyParam,
-	).Scan(&createdTxn.ID, &createdTxn.UserID, &createdTxn.Type, &createdTxn.Title, &createdTxn.Date, &createdTxn.Note, &idempKey, &createdTxn.CreatedAt, &createdTxn.UpdatedAt)
+	transactionID, err = s.transactions.CreateTx(ctx, tx, userID, txn, idempotencyKey)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Another request with the same key won the race.
@@ -282,13 +270,12 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 			"user_id", userID,
 			"idempotency_key", idempotencyKey,
 		)
-		var winnerID int
-		lookupErr := s.db.QueryRow(ctx,
-			`SELECT id FROM transactions_v2 WHERE idempotency_key = $1 AND user_id = $2`,
-			idempotencyKey, userID,
-		).Scan(&winnerID)
+		winnerID, lookupErr := s.transactions.GetIDByIdempotencyKeyTx(ctx, tx, userID, idempotencyKey)
 		if lookupErr != nil {
 			return nil, fmt.Errorf("idempotency winner lookup: %w", lookupErr)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit idempotent winner lookup (transaction=%d): %w", winnerID, err)
 		}
 		return s.enrichTransactionDetail(ctx, winnerID, userID)
 	}
@@ -296,25 +283,12 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 		return nil, fmt.Errorf("insert transaction: %w", err)
 	}
 
-	if idempKey.Valid {
-		createdTxn.IdempotencyKey = &idempKey.String
-	}
-
 	for i, e := range entries {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO ledger_entries (transaction_id, account_id, amount, entry_type)
-			 VALUES ($1, $2, $3, $4)`,
-			createdTxn.ID, e.AccountID, e.Amount, e.EntryType,
-		); err != nil {
-			return nil, fmt.Errorf("insert ledger entry %d/%d (transaction=%d): %w", i+1, len(entries), createdTxn.ID, err)
+		if err := s.ledger.CreateLedgerEntryTx(ctx, tx, transactionID, e.AccountID, e.Amount, e.EntryType); err != nil {
+			return nil, fmt.Errorf("insert ledger entry %d/%d (transaction=%d): %w", i+1, len(entries), transactionID, err)
 		}
 
-		var currentBalance float64
-		var version int
-		err = tx.QueryRow(ctx,
-			`SELECT balance, version FROM account_balances WHERE account_id = $1 FOR UPDATE`,
-			e.AccountID,
-		).Scan(&currentBalance, &version)
+		currentBalance, version, err := s.balances.GetBalanceForUpdateTx(ctx, tx, e.AccountID)
 		if err != nil {
 			return nil, fmt.Errorf("select balance (account=%d): %w", e.AccountID, err)
 		}
@@ -324,7 +298,7 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 			return nil, apperr.ErrInsufficientFunds
 		}
 		s.log.DebugContext(ctx, "updating balance",
-			"transaction_id", createdTxn.ID,
+			"transaction_id", transactionID,
 			"account_id", e.AccountID,
 			"current_balance", currentBalance,
 			"delta", e.Amount,
@@ -332,16 +306,11 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 			"version", version,
 		)
 
-		result, err := tx.Exec(ctx,
-			`UPDATE account_balances
-			 SET balance = $1, last_updated_txn = $2, version = version + 1, updated_at = now()
-			 WHERE account_id = $3 AND version = $4`,
-			newBalance, createdTxn.ID, e.AccountID, version,
-		)
+		updated, err := s.balances.UpdateBalanceTx(ctx, tx, e.AccountID, newBalance, transactionID, version)
 		if err != nil {
 			return nil, fmt.Errorf("update balance (account=%d): %w", e.AccountID, err)
 		}
-		if result.RowsAffected() == 0 {
+		if !updated {
 			s.log.WarnContext(ctx, "balance version conflict",
 				"account_id", e.AccountID,
 				"expected_version", version,
@@ -351,29 +320,24 @@ func (s *TransactionService) createTransactionWithLedgerEntries(
 	}
 
 	for _, catID := range categoryIDs {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO transaction_categories (transaction_id, category_id)
-			 VALUES ($1, $2)
-			 ON CONFLICT (transaction_id, category_id) DO NOTHING`,
-			createdTxn.ID, catID,
-		); err != nil {
-			return nil, fmt.Errorf("insert category link (transaction=%d, category=%d): %w", createdTxn.ID, catID, err)
+		if err := s.transactions.AddCategoryTx(ctx, tx, transactionID, catID); err != nil {
+			return nil, fmt.Errorf("insert category link (transaction=%d, category=%d): %w", transactionID, catID, err)
 		}
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit (transaction=%d): %w", createdTxn.ID, err)
+		return nil, fmt.Errorf("commit (transaction=%d): %w", transactionID, err)
 	}
 
 	s.log.InfoContext(ctx, "transaction created",
 		"user_id", userID,
-		"transaction_id", createdTxn.ID,
+		"transaction_id", transactionID,
 		"type", txn.Type,
 		"entries", len(entries),
 		"idempotency_key", idempotencyKey,
 	)
 
-	return s.enrichTransactionDetail(ctx, createdTxn.ID, userID)
+	return s.enrichTransactionDetail(ctx, transactionID, userID)
 }
 
 // enrichTransactionDetail loads a transaction with all related data
@@ -439,18 +403,13 @@ func (s *TransactionService) Delete(ctx context.Context, transactionID, userID i
 	}
 	defer tx.Rollback(ctx)
 
-	entries, err := s.ledger.ListByTransaction(ctx, transactionID)
+	entries, err := s.ledger.ListByTransactionTx(ctx, tx, transactionID)
 	if err != nil {
 		return fmt.Errorf("list ledger entries (transaction=%d): %w", transactionID, err)
 	}
 
 	for _, entry := range entries {
-		var currentBalance float64
-		var version int
-		err = tx.QueryRow(ctx,
-			`SELECT balance, version FROM account_balances WHERE account_id = $1 FOR UPDATE`,
-			entry.AccountID,
-		).Scan(&currentBalance, &version)
+		currentBalance, version, err := s.balances.GetBalanceForUpdateTx(ctx, tx, entry.AccountID)
 		if err != nil {
 			return fmt.Errorf("select balance (account=%d): %w", entry.AccountID, err)
 		}
@@ -467,19 +426,11 @@ func (s *TransactionService) Delete(ctx context.Context, transactionID, userID i
 			"new_balance", newBalance,
 		)
 
-		result, err := tx.Exec(ctx,
-			`UPDATE account_balances
-			 SET balance = $1,
-			     last_updated_txn = CASE WHEN last_updated_txn = $4 THEN NULL ELSE last_updated_txn END,
-			     version = version + 1,
-			     updated_at = now()
-			 WHERE account_id = $2 AND version = $3`,
-			newBalance, entry.AccountID, version, transactionID,
-		)
+		updated, err := s.balances.ReverseBalanceTx(ctx, tx, entry.AccountID, newBalance, transactionID, version)
 		if err != nil {
 			return fmt.Errorf("reverse balance (account=%d): %w", entry.AccountID, err)
 		}
-		if result.RowsAffected() == 0 {
+		if !updated {
 			s.log.WarnContext(ctx, "balance version conflict",
 				"account_id", entry.AccountID,
 				"expected_version", version,
@@ -488,15 +439,15 @@ func (s *TransactionService) Delete(ctx context.Context, transactionID, userID i
 		}
 	}
 
-	if _, err = tx.Exec(ctx, `DELETE FROM ledger_entries WHERE transaction_id = $1`, transactionID); err != nil {
+	if err = s.ledger.DeleteByTransactionTx(ctx, tx, transactionID); err != nil {
 		return fmt.Errorf("delete ledger entries (transaction=%d): %w", transactionID, err)
 	}
 
-	result, err := tx.Exec(ctx, `DELETE FROM transactions_v2 WHERE id = $1 AND user_id = $2`, transactionID, userID)
+	deleted, err := s.transactions.DeleteTx(ctx, tx, transactionID, userID)
 	if err != nil {
 		return fmt.Errorf("delete transaction %d: %w", transactionID, err)
 	}
-	if result.RowsAffected() == 0 {
+	if !deleted {
 		return apperr.ErrNotFound
 	}
 
@@ -524,8 +475,14 @@ func (s *TransactionService) validateTransactionInput(in models.TransactionInput
 	if in.Amount <= 0 {
 		return apperr.Validation("amount must be greater than 0")
 	}
+	if in.TrxCost < 0 {
+		return apperr.Validation("transaction_cost must not be negative")
+	}
 	if in.Type != expectedType {
 		return apperr.Validation("type must be '" + expectedType + "'")
+	}
+	if expectedType == "income" && in.TrxCost != 0 {
+		return apperr.Validation("transaction_cost is only supported for expenses and transfers")
 	}
 	if strings.TrimSpace(in.Category) == "" {
 		return apperr.Validation("category is required")
@@ -548,6 +505,9 @@ func (s *TransactionService) validateTransferInput(in models.TransferInput) erro
 	}
 	if in.Amount <= 0 {
 		return apperr.Validation("amount must be greater than 0")
+	}
+	if in.TrxCost < 0 {
+		return apperr.Validation("transaction_cost must not be negative")
 	}
 	return nil
 }

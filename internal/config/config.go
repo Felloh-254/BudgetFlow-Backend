@@ -32,15 +32,15 @@ func Load() *Config {
 	}
 
 	cfg := &Config{
-		Port:        getEnv("PORT", "8080"),
+		Port:        mustGetEnv("PORT"),
 		DatabaseURL: mustGetEnv("DATABASE_URL"),
 		JWTSecret:   mustGetEnv("JWT_SECRET"),
-		CORSOrigins: splitCSV(getEnv("CORS_ORIGINS", "http://localhost:5173")),
-		LogLevel:    getEnv("LOG_LEVEL", "info"),
-		LogFormat:   getEnv("LOG_FORMAT", "text"),
+		CORSOrigins: splitCSV(mustGetEnv("CORS_ORIGIN")),
+		LogLevel:    mustGetEnv("LOG_LEVEL"),
+		LogFormat:   mustGetEnv("LOG_FORMAT"),
 	}
 
-	raw := getEnv("JWT_EXPIRY_HOURS", "24")
+	raw := mustGetEnv("JWT_EXPIRY_HOURS")
 	hours, err := strconv.Atoi(raw)
 	if err != nil || hours <= 0 {
 		hours = 24
@@ -48,13 +48,6 @@ func Load() *Config {
 	cfg.JWTExpiry = time.Duration(hours) * time.Hour
 
 	return cfg
-}
-
-func getEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 func mustGetEnv(key string) string {
