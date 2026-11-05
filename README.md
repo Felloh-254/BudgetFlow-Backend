@@ -101,8 +101,9 @@ Protected endpoints require `Authorization: Bearer <token>`:
 - `DELETE /api/transactions/:id` - delete a transaction and reverse its ledger effects
 - `GET /api/summary` - financial summary
 
-Transaction creation is intentionally split by type. Amounts are supplied as positive values; the API determines the ledger direction from the transaction type.
-Expense and transfer requests also accept an optional non-negative `transaction_cost`. For expenses it is deducted in addition to the expense amount; for transfers it is deducted from the source account without changing the amount received by the destination. Income requests should omit this field or set it to zero.
+Transaction creation is intentionally split by type. Amounts are supplied as positive values; the API determines the ledger direction from the transaction type. A quick entry only needs `amount`, `account_id`, and `type`; the API defaults the title, category, and date when they are omitted. Notes and fees are optional. Transfers use `from_account_id` and `to_account_id` instead of `account_id`.
+
+The `Idempotency-Key` header is optional. Clients that may retry a request should provide one; the backend safely accepts simple form submissions without making users manage request identifiers.
 
 ## Project Structure
 

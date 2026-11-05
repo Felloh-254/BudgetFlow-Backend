@@ -1280,14 +1280,13 @@ components:
     TransactionInput:
       type: object
       required:
-      - title
       - amount
       - type
-      - category
       - account_id
       properties:
         title:
           type: string
+          description: Optional label. Defaults to Income or Expense.
           example: Grocery shopping
         amount:
           type: number
@@ -1309,6 +1308,7 @@ components:
           example: expense
         category:
           type: string
+          description: Optional category. Defaults to Other income or Other.
           example: Food
         account_id:
           type: integer
@@ -1343,13 +1343,13 @@ components:
     TransferInput:
       type: object
       required:
-      - title
       - amount
       - from_account_id
       - to_account_id
       properties:
         title:
           type: string
+          description: Optional label. Defaults to Transfer.
           example: Transfer KCB to M-Pesa
         amount:
           type: number

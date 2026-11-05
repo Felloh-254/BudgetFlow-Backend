@@ -125,6 +125,7 @@ func (s *TransactionService) Update(ctx context.Context, transactionID, userID i
 
 // CreateIncome creates an income transaction
 func (s *TransactionService) CreateIncome(ctx context.Context, userID int, in models.TransactionInput, idempotencyKey string) (*models.TransactionDetail, error) {
+	in = normalizeTransactionInput(in, "income")
 	if err := s.validateTransactionInput(in, "income"); err != nil {
 		return nil, err
 	}
@@ -152,6 +153,7 @@ func (s *TransactionService) CreateIncome(ctx context.Context, userID int, in mo
 
 // CreateExpense creates an expense transaction
 func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in models.TransactionInput, idempotencyKey string) (*models.TransactionDetail, error) {
+	in = normalizeTransactionInput(in, "expense")
 	if err := s.validateTransactionInput(in, "expense"); err != nil {
 		return nil, err
 	}
@@ -181,6 +183,7 @@ func (s *TransactionService) CreateExpense(ctx context.Context, userID int, in m
 
 // CreateTransfer creates a transfer transaction
 func (s *TransactionService) CreateTransfer(ctx context.Context, userID int, in models.TransferInput, idempotencyKey string) (*models.TransactionDetail, error) {
+	in = normalizeTransferInput(in)
 	if err := s.validateTransferInput(in); err != nil {
 		return nil, err
 	}
@@ -469,9 +472,6 @@ func (s *TransactionService) validateTransactionInput(in models.TransactionInput
 	if in.AccountID <= 0 {
 		return apperr.Validation("account_id must be greater than 0")
 	}
-	if strings.TrimSpace(in.Title) == "" {
-		return apperr.Validation("title is required")
-	}
 	if in.Amount <= 0 {
 		return apperr.Validation("amount must be greater than 0")
 	}
@@ -483,9 +483,6 @@ func (s *TransactionService) validateTransactionInput(in models.TransactionInput
 	}
 	if expectedType == "income" && in.TrxCost != 0 {
 		return apperr.Validation("transaction_cost is only supported for expenses and transfers")
-	}
-	if strings.TrimSpace(in.Category) == "" {
-		return apperr.Validation("category is required")
 	}
 	return nil
 }
@@ -500,9 +497,6 @@ func (s *TransactionService) validateTransferInput(in models.TransferInput) erro
 	if in.FromAccountID == in.ToAccountID {
 		return apperr.Validation("cannot transfer to the same account")
 	}
-	if strings.TrimSpace(in.Title) == "" {
-		return apperr.Validation("title is required")
-	}
 	if in.Amount <= 0 {
 		return apperr.Validation("amount must be greater than 0")
 	}
@@ -510,4 +504,43 @@ func (s *TransactionService) validateTransferInput(in models.TransferInput) erro
 		return apperr.Validation("transaction_cost must not be negative")
 	}
 	return nil
+}
+
+// normalizeTransactionInput keeps the quick-entry API small without creating
+// invalid ledger records. The UI only needs to send amount, account, and type.
+func normalizeTransactionInput(in models.TransactionInput, transactionType string) models.TransactionInput {
+	in.Type = transactionType
+	in.Title = strings.TrimSpace(in.Title)
+	if in.Title == "" {
+		in.Title = defaultTransactionTitle(transactionType)
+	}
+	in.Category = strings.TrimSpace(in.Category)
+	if in.Category == "" {
+		in.Category = defaultTransactionCategory(transactionType)
+	}
+	in.Note = strings.TrimSpace(in.Note)
+	return in
+}
+
+func normalizeTransferInput(in models.TransferInput) models.TransferInput {
+	in.Title = strings.TrimSpace(in.Title)
+	if in.Title == "" {
+		in.Title = "Transfer"
+	}
+	in.Note = strings.TrimSpace(in.Note)
+	return in
+}
+
+func defaultTransactionTitle(transactionType string) string {
+	if transactionType == "income" {
+		return "Income"
+	}
+	return "Expense"
+}
+
+func defaultTransactionCategory(transactionType string) string {
+	if transactionType == "income" {
+		return "Other income"
+	}
+	return "Other"
 }
