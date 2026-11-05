@@ -98,12 +98,6 @@ func (h *TransactionHandler) Create(c echo.Context) error {
 		userID, in.Type, in.Title, in.Amount, in.AccountID, in.Category, in.Date)
 
 	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
-	if idempotencyKey == "" {
-		log.Printf("[handler.transaction] Create: missing Idempotency-Key header user_id=%d", userID)
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": "Idempotency-Key header is required",
-		})
-	}
 
 	switch strings.ToLower(in.Type) {
 	case "income":
@@ -198,12 +192,6 @@ func (h *TransactionHandler) CreateIncome(c echo.Context) error {
 		userID, in.Title, in.Amount, in.AccountID, in.Category, in.Date)
 
 	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
-	if idempotencyKey == "" {
-		log.Printf("[handler.transaction] CreateIncome: missing Idempotency-Key header user_id=%d", userID)
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": "Idempotency-Key header is required",
-		})
-	}
 
 	in.Type = "income"
 
@@ -237,12 +225,6 @@ func (h *TransactionHandler) CreateExpense(c echo.Context) error {
 	}
 
 	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
-	if idempotencyKey == "" {
-		log.Printf("[handler.transaction] CreateExpense: missing Idempotency-Key header user_id=%d", userID)
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": "Idempotency-Key header is required",
-		})
-	}
 
 	in.Type = "expense"
 
@@ -273,12 +255,6 @@ func (h *TransactionHandler) CreateTransfer(c echo.Context) error {
 	}
 
 	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
-	if idempotencyKey == "" {
-		log.Printf("[handler.transaction] CreateTransfer: missing Idempotency-Key header user_id=%d", userID)
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": "Idempotency-Key header is required",
-		})
-	}
 
 	detail, err := h.transactions.CreateTransfer(c.Request().Context(), userID, in, idempotencyKey)
 	if err != nil {

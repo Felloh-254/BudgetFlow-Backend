@@ -74,12 +74,26 @@ Located in `RegisterProtectedRoutes()`:
 **Transactions:**
 - `GET /api/transactions` - List transactions (supports `month`, `start_date`, `end_date`, `type`, `category_id`, `account_id`, `limit`, `offset`)
 - `GET /api/transactions/:id` - Get transaction details with entries and categories
-- `POST /api/transactions` - Create transaction (generic dispatcher for income/expense)
+- `POST /api/transactions` - Create transaction (generic dispatcher for income/expense; quick entry accepts amount, type, and account_id)
 - `PUT /api/transactions/:id` - Update transaction metadata (title, date, note, category)
 - `POST /api/transactions/income` - Record income transaction (credits double-entry ledger)
 - `POST /api/transactions/expense` - Record expense transaction (debits double-entry ledger)
 - `POST /api/transactions/transfer` - Record transfer between accounts
 - `DELETE /api/transactions/:id` - Delete transaction and reverse ledger balances
+
+### Quick transaction entry
+
+For the simplest experience, send only the fields that describe the movement:
+
+```json
+{
+  "type": "expense",
+  "amount": 450,
+  "account_id": 2
+}
+```
+
+`title`, `category`, and `date` are optional and receive sensible defaults. `note`, `transaction_cost`, and the `Idempotency-Key` header are also optional. Use the transfer endpoint when moving money between two accounts.
 
 **Summary:**
 - `GET /api/summary` - Get financial summary (total income, expenses, net balance, budget stats, monthly points from double-entry ledger)
